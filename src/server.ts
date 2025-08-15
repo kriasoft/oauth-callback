@@ -5,6 +5,8 @@
  * SPDX-License-Identifier: MIT
  */
 
+import type { Server as HttpServer } from "node:http";
+import type { IncomingMessage } from "node:http";
 import { successTemplate, renderError } from "./templates";
 
 /**
@@ -230,13 +232,12 @@ abstract class BaseCallbackServer implements CallbackServer {
  * Bun runtime implementation using Bun.serve().
  */
 class BunCallbackServer extends BaseCallbackServer {
-  private server: any; // Bun.Server
+  private server?: Bun.Server;
 
   public async start(options: ServerOptions): Promise<void> {
     this.setup(options);
     const { port, hostname = "localhost" } = options;
 
-    // @ts-ignore - Bun global not available in TypeScript definitions
     this.server = Bun.serve({
       port,
       hostname,
@@ -266,7 +267,6 @@ class DenoCallbackServer extends BaseCallbackServer {
     // The user's signal will abort our internal controller.
     options.signal?.addEventListener("abort", () => this.abortController?.abort());
 
-    // @ts-ignore - Deno global not available in TypeScript definitions
     Deno.serve(
       { port, hostname, signal: this.abortController.signal },
       (request: Request) => this.handleRequest(request),
@@ -285,7 +285,7 @@ class DenoCallbackServer extends BaseCallbackServer {
  * Node.js implementation using node:http with Web Standards APIs.
  */
 class NodeCallbackServer extends BaseCallbackServer {
-  private server?: any; // http.Server
+  private server?: HttpServer;
 
   public async start(options: ServerOptions): Promise<void> {
     this.setup(options);
@@ -312,7 +312,7 @@ class NodeCallbackServer extends BaseCallbackServer {
 
       // Tie server closing to the abort signal if provided.
       if (options.signal) {
-        options.signal.addEventListener("abort", () => this.server.close());
+        options.signal.addEventListener("abort", () => this.server?.close());
       }
 
       this.server.listen(port, hostname, () => resolve());
@@ -323,7 +323,7 @@ class NodeCallbackServer extends BaseCallbackServer {
   protected async stopServer(): Promise<void> {
     if (this.server) {
       return new Promise((resolve) => {
-        this.server.close(() => {
+        this.server?.close(() => {
           this.server = undefined;
           resolve();
         });
@@ -334,7 +334,11 @@ class NodeCallbackServer extends BaseCallbackServer {
   /**
    * Converts a Node.js IncomingMessage to a Web Standards Request.
    */
-  private nodeToWebRequest(req: any, port: number, hostname?: string): Request {
+  private nodeToWebRequest(
+    req: IncomingMessage,
+    port: number,
+    hostname?: string,
+  ): Request {
     const host = req.headers.host || `${hostname}:${port}`;
     const url = new URL(req.url!, `http://${host}`);
 
@@ -360,12 +364,10 @@ class NodeCallbackServer extends BaseCallbackServer {
  * @returns CallbackServer instance optimized for the current runtime.
  */
 export function createCallbackServer(): CallbackServer {
-  // @ts-ignore - Bun global not available in TypeScript definitions
   if (typeof Bun !== "undefined") {
     return new BunCallbackServer();
   }
 
-  // @ts-ignore - Deno global not available in TypeScript definitions
   if (typeof Deno !== "undefined") {
     return new DenoCallbackServer();
   }
