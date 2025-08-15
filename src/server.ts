@@ -88,11 +88,15 @@ function generateCallbackHTML(
  * Base class with shared logic for all runtime implementations.
  */
 abstract class BaseCallbackServer implements CallbackServer {
-  protected callbackPromise?: {
-    resolve: (result: CallbackResult) => void;
-    reject: (error: Error) => void;
-  };
-  protected callbackPath: string = "/callback";
+  // Use a Map to safely handle listeners for different paths.
+  // This is more robust than a single property, preventing potential race conditions.
+  protected callbackListeners = new Map<
+    string,
+    {
+      resolve: (result: CallbackResult) => void;
+      reject: (error: Error) => void;
+    }
+  >();
   protected successHtml?: string;
   protected errorHtml?: string;
   protected onRequest?: (req: Request) => void;
@@ -116,11 +120,8 @@ abstract class BaseCallbackServer implements CallbackServer {
     if (!signal) return;
     if (signal.aborted) throw new Error("Operation aborted");
 
-    this.abortHandler = () => {
-      this.stop();
-      if (!this.callbackPromise) return;
-      this.callbackPromise.reject(new Error("Operation aborted"));
-    };
+    // The abort handler now just calls stop(), which handles cleanup.
+    this.abortHandler = () => this.stop();
     signal.addEventListener("abort", this.abortHandler);
   }
 
@@ -129,18 +130,18 @@ abstract class BaseCallbackServer implements CallbackServer {
    * This logic is the same for all runtimes.
    */
   protected handleRequest(request: Request): Response {
-    if (typeof this.onRequest === "function") this.onRequest(request);
+    this.onRequest?.(request);
 
     const url = new URL(request.url);
+    const listener = this.callbackListeners.get(url.pathname);
 
-    if (url.pathname !== this.callbackPath)
-      return new Response("Not Found", { status: 404 });
+    if (!listener) return new Response("Not Found", { status: 404 });
 
     const params: CallbackResult = {};
-
     for (const [key, value] of url.searchParams) params[key] = value;
 
-    if (this.callbackPromise) this.callbackPromise.resolve(params);
+    // Resolve the promise for the waiting listener.
+    listener.resolve(params);
 
     return new Response(
       generateCallbackHTML(params, this.successHtml, this.errorHtml),
@@ -153,66 +154,54 @@ abstract class BaseCallbackServer implements CallbackServer {
 
   /**
    * Waits for the OAuth callback on a specific path.
-   * This logic is the same for all runtimes.
    */
   public async waitForCallback(
     path: string,
     timeout: number,
   ): Promise<CallbackResult> {
-    this.callbackPath = path;
+    if (this.callbackListeners.has(path))
+      return Promise.reject(
+        new Error(`A listener for the path "${path}" is already active.`),
+      );
 
-    return new Promise((resolve, reject) => {
-      let isResolved = false;
-
-      const timer = setTimeout(() => {
-        if (!isResolved) {
-          isResolved = true;
-          this.callbackPromise = undefined;
-          reject(
-            new Error(
-              `OAuth callback timeout after ${timeout}ms waiting for ${path}`,
-            ),
-          );
-        }
-      }, timeout);
-
-      const wrappedResolve = (result: CallbackResult) => {
-        if (!isResolved) {
-          isResolved = true;
-          clearTimeout(timer);
-          this.callbackPromise = undefined;
-          resolve(result);
-        }
-      };
-
-      const wrappedReject = (error: Error) => {
-        if (!isResolved) {
-          isResolved = true;
-          clearTimeout(timer);
-          this.callbackPromise = undefined;
-          reject(error);
-        }
-      };
-
-      this.callbackPromise = { resolve: wrappedResolve, reject: wrappedReject };
-    });
+    try {
+      // Race a promise that waits for the callback against a promise that rejects on timeout.
+      return await Promise.race([
+        // This promise is resolved or rejected by the handleRequest method.
+        new Promise<CallbackResult>((resolve, reject) => {
+          this.callbackListeners.set(path, { resolve, reject });
+        }),
+        // This promise rejects after the specified timeout.
+        new Promise<CallbackResult>((_, reject) => {
+          setTimeout(() => {
+            reject(
+              new Error(
+                `OAuth callback timeout after ${timeout}ms waiting for ${path}`,
+              ),
+            );
+          }, timeout);
+        }),
+      ]);
+    } finally {
+      // CRITICAL: Always clean up the listener to prevent memory leaks,
+      // regardless of whether the promise resolved or rejected.
+      this.callbackListeners.delete(path);
+    }
   }
 
   /**
    * Stops the server and cleans up resources.
-   * This handles shared cleanup logic and calls the runtime-specific stop method.
    */
   public async stop(): Promise<void> {
     if (this.abortHandler && this.signal) {
       this.signal.removeEventListener("abort", this.abortHandler);
       this.abortHandler = undefined;
     }
-    if (this.callbackPromise) {
-      this.callbackPromise.reject(
-        new Error("Server stopped before callback received"),
-      );
-      this.callbackPromise = undefined;
-    }
+    // Reject any pending promises before stopping the server.
+    for (const listener of this.callbackListeners.values())
+      listener.reject(new Error("Server stopped before callback received"));
+
+    this.callbackListeners.clear();
     await this.stopServer();
   }
 }
