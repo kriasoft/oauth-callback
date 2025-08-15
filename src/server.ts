@@ -69,20 +69,19 @@ function generateCallbackHTML(
   successHtml?: string,
   errorHtml?: string,
 ): string {
-  if (params.error) {
-    if (errorHtml) {
-      return errorHtml
-        .replace(/{{error}}/g, params.error || "")
-        .replace(/{{error_description}}/g, params.error_description || "")
-        .replace(/{{error_uri}}/g, params.error_uri || "");
-    }
-    return renderError({
-      error: params.error,
-      error_description: params.error_description,
-      error_uri: params.error_uri,
-    });
-  }
-  return successHtml || successTemplate;
+  if (!params.error) return successHtml || successTemplate;
+
+  if (errorHtml)
+    return errorHtml
+      .replace(/{{error}}/g, params.error || "")
+      .replace(/{{error_description}}/g, params.error_description || "")
+      .replace(/{{error_uri}}/g, params.error_uri || "");
+
+  return renderError({
+    error: params.error,
+    error_description: params.error_description,
+    error_uri: params.error_uri,
+  });
 }
 
 /**
@@ -114,18 +113,15 @@ abstract class BaseCallbackServer implements CallbackServer {
     this.onRequest = onRequest;
     this.signal = signal;
 
-    if (signal) {
-      if (signal.aborted) {
-        throw new Error("Operation aborted");
-      }
-      this.abortHandler = () => {
-        this.stop();
-        if (this.callbackPromise) {
-          this.callbackPromise.reject(new Error("Operation aborted"));
-        }
-      };
-      signal.addEventListener("abort", this.abortHandler);
-    }
+    if (!signal) return;
+    if (signal.aborted) throw new Error("Operation aborted");
+
+    this.abortHandler = () => {
+      this.stop();
+      if (!this.callbackPromise) return;
+      this.callbackPromise.reject(new Error("Operation aborted"));
+    };
+    signal.addEventListener("abort", this.abortHandler);
   }
 
   /**
@@ -133,33 +129,26 @@ abstract class BaseCallbackServer implements CallbackServer {
    * This logic is the same for all runtimes.
    */
   protected handleRequest(request: Request): Response {
-    if (this.onRequest) {
-      this.onRequest(request);
-    }
+    if (typeof this.onRequest === "function") this.onRequest(request);
 
     const url = new URL(request.url);
 
-    if (url.pathname === this.callbackPath) {
-      const params: CallbackResult = {};
+    if (url.pathname !== this.callbackPath)
+      return new Response("Not Found", { status: 404 });
 
-      for (const [key, value] of url.searchParams) {
-        params[key] = value;
-      }
+    const params: CallbackResult = {};
 
-      if (this.callbackPromise) {
-        this.callbackPromise.resolve(params);
-      }
+    for (const [key, value] of url.searchParams) params[key] = value;
 
-      return new Response(
-        generateCallbackHTML(params, this.successHtml, this.errorHtml),
-        {
-          status: 200,
-          headers: { "Content-Type": "text/html" },
-        },
-      );
-    }
+    if (this.callbackPromise) this.callbackPromise.resolve(params);
 
-    return new Response("Not Found", { status: 404 });
+    return new Response(
+      generateCallbackHTML(params, this.successHtml, this.errorHtml),
+      {
+        status: 200,
+        headers: { "Content-Type": "text/html" },
+      },
+    );
   }
 
   /**
@@ -246,10 +235,9 @@ class BunCallbackServer extends BaseCallbackServer {
   }
 
   protected async stopServer(): Promise<void> {
-    if (this.server) {
-      this.server.stop();
-      this.server = undefined;
-    }
+    if (!this.server) return;
+    this.server.stop();
+    this.server = undefined;
   }
 }
 
@@ -265,7 +253,9 @@ class DenoCallbackServer extends BaseCallbackServer {
     this.abortController = new AbortController();
 
     // The user's signal will abort our internal controller.
-    options.signal?.addEventListener("abort", () => this.abortController?.abort());
+    options.signal?.addEventListener("abort", () =>
+      this.abortController?.abort(),
+    );
 
     Deno.serve(
       { port, hostname, signal: this.abortController.signal },
@@ -274,10 +264,9 @@ class DenoCallbackServer extends BaseCallbackServer {
   }
 
   protected async stopServer(): Promise<void> {
-    if (this.abortController) {
-      this.abortController.abort();
-      this.abortController = undefined;
-    }
+    if (!this.abortController) return;
+    this.abortController.abort();
+    this.abortController = undefined;
   }
 }
 
@@ -311,9 +300,8 @@ class NodeCallbackServer extends BaseCallbackServer {
       });
 
       // Tie server closing to the abort signal if provided.
-      if (options.signal) {
+      if (options.signal)
         options.signal.addEventListener("abort", () => this.server?.close());
-      }
 
       this.server.listen(port, hostname, () => resolve());
       this.server.on("error", reject);
@@ -321,14 +309,13 @@ class NodeCallbackServer extends BaseCallbackServer {
   }
 
   protected async stopServer(): Promise<void> {
-    if (this.server) {
-      return new Promise((resolve) => {
-        this.server?.close(() => {
-          this.server = undefined;
-          resolve();
-        });
+    if (!this.server) return;
+    return new Promise((resolve) => {
+      this.server?.close(() => {
+        this.server = undefined;
+        resolve();
       });
-    }
+    });
   }
 
   /**
@@ -344,11 +331,8 @@ class NodeCallbackServer extends BaseCallbackServer {
 
     const headers = new Headers();
     for (const [key, value] of Object.entries(req.headers)) {
-      if (typeof value === "string") {
-        headers.set(key, value);
-      } else if (Array.isArray(value)) {
-        headers.set(key, value.join(", "));
-      }
+      if (typeof value === "string") headers.set(key, value);
+      else if (Array.isArray(value)) headers.set(key, value.join(", "));
     }
 
     return new Request(url.toString(), {
@@ -364,13 +348,8 @@ class NodeCallbackServer extends BaseCallbackServer {
  * @returns CallbackServer instance optimized for the current runtime.
  */
 export function createCallbackServer(): CallbackServer {
-  if (typeof Bun !== "undefined") {
-    return new BunCallbackServer();
-  }
-
-  if (typeof Deno !== "undefined") {
-    return new DenoCallbackServer();
-  }
+  if (typeof Bun !== "undefined") return new BunCallbackServer();
+  if (typeof Deno !== "undefined") return new DenoCallbackServer();
 
   return new NodeCallbackServer();
 }
