@@ -2,11 +2,8 @@
 /* SPDX-License-Identifier: MIT */
 
 /**
- * @fileoverview OAuth 2.0 authorization code flow handler for Node.js, Deno, and Bun
- *
- * This module provides a simple way to handle OAuth 2.0 authorization code flows
- * in command-line applications, desktop apps, and development environments.
- * It creates a temporary local HTTP server to capture the authorization callback.
+ * OAuth 2.0 authorization code flow handler for Node.js, Deno, and Bun.
+ * Creates a temporary localhost server to capture OAuth callbacks for CLI/desktop apps.
  */
 
 import open from "open";
@@ -14,32 +11,36 @@ import { OAuthError } from "./errors";
 import { createCallbackServer, type CallbackResult } from "./server";
 import type { GetAuthCodeOptions } from "./types";
 
-// Export types and interfaces for external use
 export type { CallbackResult, CallbackServer, ServerOptions } from "./server";
 export { OAuthError } from "./errors";
 export type { GetAuthCodeOptions } from "./types";
 
+// MCP auth providers
+export { browserAuth } from "./auth/browser-auth";
+
+// Storage implementations
+export { inMemoryStore } from "./storage/memory";
+export { fileStore } from "./storage/file";
+
+// MCP types
+export type { BrowserAuthOptions, Tokens, TokenStore } from "./mcp-types";
+
 /**
- * Get the OAuth authorization code from the authorization URL.
+ * Captures OAuth authorization code via localhost callback.
+ * Opens browser to auth URL, waits for provider redirect to localhost.
  *
- * Creates a temporary local HTTP server to handle the OAuth callback,
- * opens the authorization URL in the user's browser, and waits for the
- * OAuth provider to redirect back with an authorization code.
- *
- * @param input - Either a string containing the OAuth authorization URL,
- *                or a GetAuthCodeOptions object with detailed configuration
- * @returns Promise that resolves to CallbackResult containing the authorization code
- *          and other parameters, or rejects with OAuthError if authorization fails
- * @throws {OAuthError} When OAuth provider returns an error (e.g., access_denied)
- * @throws {Error} For timeout, network errors, or other unexpected failures
+ * @param input - Auth URL string or GetAuthCodeOptions with config
+ * @returns Promise<CallbackResult> with code and params
+ * @throws {OAuthError} Provider errors (access_denied, invalid_scope)
+ * @throws {Error} Timeout, network failures, port conflicts
  *
  * @example
  * ```typescript
- * // Simple usage with URL string
+ * // Simple
  * const result = await getAuthCode('https://oauth.example.com/authorize?...');
  * console.log('Code:', result.code);
  *
- * // Advanced usage with options
+ * // Custom port/timeout
  * const result = await getAuthCode({
  *   authorizationUrl: 'https://oauth.example.com/authorize?...',
  *   port: 8080,
@@ -70,7 +71,6 @@ export async function getAuthCode(
   const server = createCallbackServer();
 
   try {
-    // Start the callback server with all options
     await server.start({
       port,
       hostname,
@@ -80,32 +80,27 @@ export async function getAuthCode(
       onRequest,
     });
 
-    // Open the authorization URL in the browser if enabled
     if (openBrowser) {
       await open(authorizationUrl);
     } else {
-      // In test mode, make a request to the authorization URL
-      // The mock OAuth provider will redirect to our callback
+      // Test mode: trigger mock provider redirect without browser
       fetch(authorizationUrl)
         .then(async (response) => {
-          // Follow the redirect if there is one
           if (response.status === 302 || response.status === 301) {
             const location = response.headers.get("Location");
             if (location) {
-              // Make a request to the callback URL
               await fetch(location);
             }
           }
         })
         .catch(() => {
-          // Ignore errors - not all tests may have a mock provider
+          // Ignore - tests may lack mock provider
         });
     }
 
-    // Wait for the OAuth callback
     const result = await server.waitForCallback(callbackPath, timeout);
 
-    // Handle OAuth errors - always throw them as this is the expected behavior
+    // OAuth errors must be thrown, not returned
     if (result.error) {
       throw new OAuthError(
         result.error,
@@ -116,7 +111,6 @@ export async function getAuthCode(
 
     return result;
   } finally {
-    // Always stop the server
     await server.stop();
   }
 }

@@ -48,26 +48,29 @@ function processHTML(htmlPath: string, inlineCSS: string): string {
   // Extract script content to preserve it
   const scripts: string[] = [];
   const scriptPlaceholder = "___SCRIPT_PLACEHOLDER___";
-  
+
   // Extract and preserve script tags
-  html = html.replace(/<script[^>]*>([\s\S]*?)<\/script>/g, (match, content) => {
-    // Remove single-line comments from JavaScript
-    const cleanedContent = content
-      .split('\n')
-      .map((line: string) => {
-        // Remove // comments but preserve the code
-        const commentIndex = line.indexOf('//');
-        if (commentIndex !== -1) {
-          return line.substring(0, commentIndex).trimEnd();
-        }
-        return line;
-      })
-      .filter((line: string) => line.trim()) // Remove empty lines
-      .join(' ');
-    
-    scripts.push(`<script>${cleanedContent}</script>`);
-    return scriptPlaceholder;
-  });
+  html = html.replace(
+    /<script[^>]*>([\s\S]*?)<\/script>/g,
+    (match, content) => {
+      // Remove single-line comments from JavaScript
+      const cleanedContent = content
+        .split("\n")
+        .map((line: string) => {
+          // Remove // comments but preserve the code
+          const commentIndex = line.indexOf("//");
+          if (commentIndex !== -1) {
+            return line.substring(0, commentIndex).trimEnd();
+          }
+          return line;
+        })
+        .filter((line: string) => line.trim()) // Remove empty lines
+        .join(" ");
+
+      scripts.push(`<script>${cleanedContent}</script>`);
+      return scriptPlaceholder;
+    },
+  );
 
   // Minify HTML while preserving important elements
   html = html
@@ -78,7 +81,7 @@ function processHTML(htmlPath: string, inlineCSS: string): string {
     .trim();
 
   // Restore script tags
-  scripts.forEach(script => {
+  scripts.forEach((script) => {
     html = html.replace(scriptPlaceholder, script);
   });
 
