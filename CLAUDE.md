@@ -5,7 +5,8 @@
 ```bash
 oauth-callback/
 ├── src/                     # Source code
-│   ├── index.ts             # Main entry - exports getAuthCode(), OAuthError, browserAuth()
+│   ├── index.ts             # Main entry - exports getAuthCode(), OAuthError, mcp namespace
+│   ├── mcp.ts               # MCP SDK exports - browserAuth(), storage, types
 │   ├── server.ts            # HTTP server for OAuth callbacks
 │   ├── errors.ts            # OAuthError class and error handling
 │   ├── mcp-types.ts         # TypeScript interfaces for MCP integration
@@ -13,7 +14,8 @@ oauth-callback/
 │   │   ├── browser-auth.ts  # MCP SDK-compatible OAuth provider
 │   │   └── browser-auth.test.ts
 │   ├── storage/             # Token storage implementations
-│   │   └── memory.ts        # In-memory token store
+│   │   ├── memory.ts        # In-memory token store
+│   │   └── file.ts          # Persistent file-based token store
 │   └── utils/               # Utility functions
 │       └── token.ts         # Token expiry calculations
 │
@@ -28,8 +30,10 @@ oauth-callback/
 │   └── notion.ts            # Notion MCP with Dynamic Client Registration
 │
 ├── dist/                    # Build output (generated)
-│   ├── index.js             # Compiled JavaScript
-│   ├── index.d.ts           # TypeScript declarations
+│   ├── index.js             # Main bundle
+│   ├── index.d.ts           # Main TypeScript declarations
+│   ├── mcp.js               # MCP-specific bundle
+│   ├── mcp.d.ts            # MCP TypeScript declarations
 │   └── ...
 │
 ├── package.json             # Project metadata and dependencies
@@ -37,6 +41,22 @@ oauth-callback/
 ├── README.md                # User documentation
 └── CLAUDE.md                # This file - AI assistant context
 ```
+
+## Module Organization
+
+### Main Export (`oauth-callback`)
+
+- `getAuthCode()` - Core OAuth authorization code capture
+- `OAuthError` - OAuth-specific error class
+- `mcp` namespace - Access to all MCP-specific functionality
+- Storage implementations for backward compatibility
+
+### MCP Export (`oauth-callback/mcp`)
+
+- `browserAuth()` - MCP SDK-compatible OAuth provider
+- `inMemoryStore()` - Ephemeral token storage
+- `fileStore()` - Persistent file-based token storage
+- Type exports: `BrowserAuthOptions`, `Tokens`, `TokenStore`, `ClientInfo`, `OAuthSession`, `OAuthStore`
 
 ## Key Constraints
 

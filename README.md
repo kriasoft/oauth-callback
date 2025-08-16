@@ -42,12 +42,7 @@ npm install oauth-callback
 ## Quick Start
 
 ```typescript
-import {
-  getAuthCode,
-  OAuthError,
-  browserAuth,
-  fileStore,
-} from "oauth-callback";
+import { getAuthCode, OAuthError } from "oauth-callback";
 
 // Simple usage
 const result = await getAuthCode(
@@ -55,8 +50,13 @@ const result = await getAuthCode(
 );
 console.log("Authorization code:", result.code);
 
-// MCP SDK integration
+// MCP SDK integration - use specific import
+import { browserAuth, fileStore } from "oauth-callback/mcp";
 const authProvider = browserAuth({ store: fileStore() });
+
+// Or via namespace import
+import { mcp } from "oauth-callback";
+const authProvider = mcp.browserAuth({ store: mcp.fileStore() });
 ```
 
 ## Usage Examples
@@ -139,7 +139,7 @@ const microsoftAuth = await getAuthCode(
 The `browserAuth()` function provides a drop-in OAuth provider for the Model Context Protocol SDK:
 
 ```typescript
-import { browserAuth, inMemoryStore } from "oauth-callback";
+import { browserAuth, inMemoryStore } from "oauth-callback/mcp";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 
@@ -167,7 +167,7 @@ await client.connect(transport);
 #### Token Storage Options
 
 ```typescript
-import { browserAuth, inMemoryStore, fileStore } from "oauth-callback";
+import { browserAuth, inMemoryStore, fileStore } from "oauth-callback/mcp";
 
 // Ephemeral storage (tokens lost on restart)
 const ephemeralAuth = browserAuth({
@@ -283,7 +283,7 @@ class OAuthError extends Error {
 
 ### `browserAuth(options)`
 
-Creates an MCP SDK-compatible OAuth provider for browser-based flows. Handles Dynamic Client Registration (DCR), token storage, and automatic refresh.
+Available from `oauth-callback/mcp`. Creates an MCP SDK-compatible OAuth provider for browser-based flows. Handles Dynamic Client Registration (DCR), token storage, and automatic refresh.
 
 #### Parameters
 
@@ -307,7 +307,7 @@ OAuthClientProvider compatible with MCP SDK transports.
 
 ### `inMemoryStore()`
 
-Creates an ephemeral in-memory token store. Tokens are lost when the process exits.
+Available from `oauth-callback/mcp`. Creates an ephemeral in-memory token store. Tokens are lost when the process exits.
 
 #### Returns
 
@@ -315,7 +315,7 @@ TokenStore implementation for temporary token storage.
 
 ### `fileStore(filepath?)`
 
-Creates a persistent file-based token store.
+Available from `oauth-callback/mcp`. Creates a persistent file-based token store.
 
 #### Parameters
 

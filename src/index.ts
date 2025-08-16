@@ -15,15 +15,13 @@ export type { CallbackResult, CallbackServer, ServerOptions } from "./server";
 export { OAuthError } from "./errors";
 export type { GetAuthCodeOptions } from "./types";
 
-// MCP auth providers
-export { browserAuth } from "./auth/browser-auth";
-
-// Storage implementations
+// Storage implementations (backward compatibility)
 export { inMemoryStore } from "./storage/memory";
 export { fileStore } from "./storage/file";
 
-// MCP types
-export type { BrowserAuthOptions, Tokens, TokenStore } from "./mcp-types";
+// MCP namespace export
+import * as mcp from "./mcp";
+export { mcp };
 
 /**
  * Captures OAuth authorization code via localhost callback.

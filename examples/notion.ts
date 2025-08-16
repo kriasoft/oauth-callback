@@ -14,7 +14,7 @@
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { browserAuth, inMemoryStore } from "../src/index";
+import { browserAuth, inMemoryStore } from "../src/mcp";
 
 async function main() {
   console.log("🚀 Starting OAuth flow example with Notion MCP Server\n");
