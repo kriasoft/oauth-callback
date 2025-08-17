@@ -413,6 +413,9 @@ bun test
 # Build
 bun run build
 
+# Run documentation locally
+bun run docs:dev        # Start VitePress dev server at http://localhost:5173
+
 # Run examples
 bun run example:demo    # Interactive demo
 bun run example:github  # GitHub OAuth example

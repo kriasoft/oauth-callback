@@ -35,7 +35,7 @@
     "type": "git",
     "url": "git+https://github.com/kriasoft/oauth-callback.git"
   },
-  "homepage": "https://github.com/kriasoft/oauth-callback",
+  "homepage": "https://kriasoft.com/oauth-callback",
   "bugs": {
     "url": "https://github.com/kriasoft/oauth-callback/issues"
   },
@@ -81,9 +81,12 @@
   "devDependencies": {
     "@modelcontextprotocol/sdk": "^1.17.3",
     "@types/bun": "^1.2.20",
+    "mermaid": "^11.9.0",
     "prettier": "^3.6.2",
     "publint": "^0.3.12",
-    "typescript": "^5.9.2"
+    "typescript": "^5.9.2",
+    "vitepress": "^1.6.4",
+    "vitepress-plugin-mermaid": "^2.0.17"
   },
   "prettier": {
     "trailingComma": "all",
@@ -106,6 +109,10 @@
     "example:github": "bun run examples/github.ts",
     "example:notion": "bun run examples/notion.ts",
     "example:mcp-auth": "bun run examples/mcp-auth.ts",
-    "prepublishOnly": "bun run build && bun run lint:package"
+    "prepublishOnly": "bun run build && bun run lint:package",
+    "docs:dev": "vitepress dev docs",
+    "docs:build": "vitepress build docs",
+    "docs:preview": "vitepress preview docs",
+    "docs:publish": "bunx gh-pages -d docs/.vitepress/dist"
   }
 }
