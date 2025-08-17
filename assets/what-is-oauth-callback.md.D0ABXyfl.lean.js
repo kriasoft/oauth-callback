@@ -1,0 +1,1 @@
+import{_ as a,c as t,o as e}from"./chunks/framework.SiOAl-M1.js";const _=JSON.parse('{"title":"","description":"","frontmatter":{},"headers":[],"relativePath":"what-is-oauth-callback.md","filePath":"what-is-oauth-callback.md"}'),c={name:"what-is-oauth-callback.md"};function o(s,r,l,n,i,h){return e(),t("div")}const d=a(c,[["render",o]]);export{_ as __pageData,d as default};

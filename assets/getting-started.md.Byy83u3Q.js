@@ -1,0 +1,1 @@
+import{_ as t,c as e,o as a}from"./chunks/framework.SiOAl-M1.js";const g=JSON.parse('{"title":"","description":"","frontmatter":{},"headers":[],"relativePath":"getting-started.md","filePath":"getting-started.md"}'),r={name:"getting-started.md"};function n(s,o,c,d,i,p){return a(),e("div")}const m=t(r,[["render",n]]);export{g as __pageData,m as default};
