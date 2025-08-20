@@ -1,0 +1,12 @@
+modules = ["web", "bun-1.2"]
+run = "bun test"
+
+[nix]
+channel = "stable-25_05"
+
+[deployment]
+run = ["sh", "-c", "bun test"]
+
+[[ports]]
+localPort = 8080
+externalPort = 80
