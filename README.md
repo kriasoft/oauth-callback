@@ -5,7 +5,7 @@
 [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/kriasoft/oauth-callback/blob/main/LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-Ready-blue.svg)](https://www.typescriptlang.org/)
 
-A lightweight local HTTP server for handling OAuth 2.0 authorization callbacks in Node.js, Deno, and Bun applications. Perfect for CLI tools, desktop applications, and development environments that need to capture OAuth authorization codes.
+A lightweight OAuth 2.0 callback handler for Node.js, Deno, and Bun with built-in browser flow and MCP SDK integration. Perfect for CLI tools, desktop applications, and development environments that need to capture OAuth authorization codes.
 
 <div align="center">
   <img src="https://raw.githubusercontent.com/kriasoft/oauth-callback/main/examples/notion.gif" alt="OAuth Callback Demo" width="100%" style="max-width: 800px; height: auto;">
@@ -15,10 +15,12 @@ A lightweight local HTTP server for handling OAuth 2.0 authorization callbacks i
 
 - 🚀 **Multi-runtime support** - Works with Node.js 18+, Deno, and Bun
 - 🔒 **Secure localhost-only server** for OAuth callbacks
+- 🤖 **MCP SDK integration** - Built-in OAuth provider for Model Context Protocol
 - ⚡ **Minimal dependencies** - Only requires `open` package
 - 🎯 **TypeScript support** out of the box
 - 🛡️ **Comprehensive OAuth error handling** with detailed error classes
 - 🔄 **Automatic server cleanup** after callback
+- 💾 **Flexible token storage** - In-memory and file-based options
 - 🎪 **Clean success pages** with animated checkmark
 - 🎨 **Customizable HTML templates** with placeholder support
 - 🚦 **AbortSignal support** for programmatic cancellation
@@ -47,6 +49,14 @@ const result = await getAuthCode(
   "https://example.com/oauth/authorize?client_id=xxx&redirect_uri=http://localhost:3000/callback",
 );
 console.log("Authorization code:", result.code);
+
+// MCP SDK integration - use specific import
+import { browserAuth, fileStore } from "oauth-callback/mcp";
+const authProvider = browserAuth({ store: fileStore() });
+
+// Or via namespace import
+import { mcp } from "oauth-callback";
+const authProvider = mcp.browserAuth({ store: mcp.fileStore() });
 ```
 
 ## Usage Examples
@@ -122,6 +132,71 @@ const microsoftAuth = await getAuthCode(
       response_mode: "query",
     }),
 );
+```
+
+### MCP SDK Integration
+
+The `browserAuth()` function provides a drop-in OAuth provider for the Model Context Protocol SDK:
+
+```typescript
+import { browserAuth, inMemoryStore } from "oauth-callback/mcp";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+
+// Create MCP-compatible OAuth provider
+const authProvider = browserAuth({
+  port: 3000,
+  scope: "read write",
+  store: inMemoryStore(), // Or fileStore() for persistence
+});
+
+// Use with MCP SDK transport
+const transport = new StreamableHTTPClientTransport(
+  new URL("https://mcp.notion.com/mcp"),
+  { authProvider },
+);
+
+const client = new Client(
+  { name: "my-app", version: "1.0.0" },
+  { capabilities: {} },
+);
+
+await client.connect(transport);
+```
+
+#### Token Storage Options
+
+```typescript
+import { browserAuth, inMemoryStore, fileStore } from "oauth-callback/mcp";
+
+// Ephemeral storage (tokens lost on restart)
+const ephemeralAuth = browserAuth({
+  store: inMemoryStore(),
+});
+
+// Persistent file storage (default: ~/.mcp/tokens.json)
+const persistentAuth = browserAuth({
+  store: fileStore(),
+  storeKey: "my-app-tokens", // Namespace for multiple apps
+});
+
+// Custom file location
+const customAuth = browserAuth({
+  store: fileStore("/path/to/tokens.json"),
+});
+```
+
+#### Pre-configured Client Credentials
+
+If you have pre-registered OAuth client credentials:
+
+```typescript
+const authProvider = browserAuth({
+  clientId: "your-client-id",
+  clientSecret: "your-client-secret",
+  scope: "read write",
+  store: fileStore(), // Persist tokens across sessions
+});
 ```
 
 ### Advanced Usage
@@ -206,6 +281,50 @@ class OAuthError extends Error {
 }
 ```
 
+### `browserAuth(options)`
+
+Available from `oauth-callback/mcp`. Creates an MCP SDK-compatible OAuth provider for browser-based flows. Handles Dynamic Client Registration (DCR), token storage, and automatic refresh.
+
+#### Parameters
+
+- `options` (BrowserAuthOptions): Configuration object with:
+  - `port` (number): Port for callback server (default: 3000)
+  - `hostname` (string): Hostname to bind to (default: "localhost")
+  - `callbackPath` (string): URL path for OAuth callback (default: "/callback")
+  - `scope` (string): OAuth scopes to request
+  - `clientId` (string): Pre-registered client ID (optional)
+  - `clientSecret` (string): Pre-registered client secret (optional)
+  - `store` (TokenStore): Token storage implementation (default: inMemoryStore())
+  - `storeKey` (string): Storage key for tokens (default: "mcp-tokens")
+  - `authTimeout` (number): Authorization timeout in ms (default: 300000)
+  - `successHtml` (string): Custom success page HTML
+  - `errorHtml` (string): Custom error page HTML
+  - `onRequest` (function): Request logging callback
+
+#### Returns
+
+OAuthClientProvider compatible with MCP SDK transports.
+
+### `inMemoryStore()`
+
+Available from `oauth-callback/mcp`. Creates an ephemeral in-memory token store. Tokens are lost when the process exits.
+
+#### Returns
+
+TokenStore implementation for temporary token storage.
+
+### `fileStore(filepath?)`
+
+Available from `oauth-callback/mcp`. Creates a persistent file-based token store.
+
+#### Parameters
+
+- `filepath` (string): Optional custom file path (default: `~/.mcp/tokens.json`)
+
+#### Returns
+
+TokenStore implementation for persistent token storage.
+
 ## How It Works
 
 1. **Server Creation**: Creates a temporary HTTP server on the specified port
@@ -279,7 +398,8 @@ This example demonstrates:
 - Dynamic Client Registration (OAuth 2.0 DCR) - no pre-configured client ID/secret needed
 - Integration with Model Context Protocol (MCP) servers
 - Automatic client registration with the authorization server
-- Using the MCP SDK's OAuth capabilities
+- Using `browserAuth()` provider with MCP SDK's `StreamableHTTPClientTransport`
+- Token persistence with `inMemoryStore()` for ephemeral sessions
 
 ## Development
 
@@ -292,6 +412,9 @@ bun test
 
 # Build
 bun run build
+
+# Run documentation locally
+bun run docs:dev        # Start VitePress dev server at http://localhost:5173
 
 # Run examples
 bun run example:demo    # Interactive demo

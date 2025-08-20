@@ -1,47 +1,41 @@
 {
   "name": "oauth-callback",
-  "version": "1.0.0",
-  "description": "Simple local OAuth callback server for capturing authorization codes in CLI tools and desktop apps",
+  "version": "1.2.0",
+  "description": "Lightweight OAuth 2.0 callback handler for Node.js, Deno, and Bun with built-in browser flow, MCP support, and zero dependencies",
   "keywords": [
     "oauth",
     "oauth2",
     "callback",
-    "authorization",
+    "authorization-code",
+    "pkce",
     "authentication",
-    "auth",
-    "token",
-    "access-token",
-    "refresh-token",
-    "redirect",
-    "login",
-    "openid",
-    "oidc",
     "mcp",
+    "model-context-protocol",
+    "dynamic-client-registration",
+    "localhost",
+    "cli",
+    "cli-tool",
+    "desktop-app",
     "typescript",
-    "javascript",
+    "node",
+    "deno",
     "bun",
-    "client",
-    "server",
-    "handler",
-    "security",
     "rfc6749",
+    "rfc7636",
+    "rfc8252",
     "rfc7591",
-    "jwt",
-    "bearer",
-    "mcp-client",
-    "web",
-    "middleware",
-    "express",
-    "fastify",
-    "session"
+    "token",
+    "refresh-token",
+    "openid",
+    "oidc"
   ],
   "author": "Konstantin Tarkus <koistya@kriasoft.com>",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/kriasoft/oauth-callback.git"
+    "url": "git+https://github.com/kriasoft/oauth-callback.git"
   },
-  "homepage": "https://github.com/kriasoft/oauth-callback",
+  "homepage": "https://kriasoft.com/oauth-callback",
   "bugs": {
     "url": "https://github.com/kriasoft/oauth-callback/issues"
   },
@@ -60,10 +54,12 @@
   "type": "module",
   "exports": {
     ".": {
-      "bun": "./src/index.ts",
-      "deno": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./mcp": {
+      "types": "./dist/mcp.d.ts",
+      "default": "./dist/mcp.js"
     },
     "./package.json": "./package.json"
   },
@@ -71,31 +67,55 @@
     "open": "^10.2.0"
   },
   "peerDependencies": {
-    "typescript": "^5"
+    "@modelcontextprotocol/sdk": ">=1.17.0 <2",
+    "typescript": ">=5 <6"
+  },
+  "peerDependenciesMeta": {
+    "@modelcontextprotocol/sdk": {
+      "optional": true
+    },
+    "typescript": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@modelcontextprotocol/sdk": "^1.17.3",
-    "@types/bun": "latest",
     "@types/deno": "^2.3.0",
     "@types/node": "^24.3.0",
     "@types/open": "^6.2.1",
+    "@types/bun": "^1.2.20",
+    "mermaid": "^11.9.0",
     "prettier": "^3.6.2",
-    "typescript": "^5.9.2"
+    "publint": "^0.3.12",
+    "typescript": "^5.9.2",
+    "vitepress": "^1.6.4",
+    "vitepress-plugin-mermaid": "^2.0.17"
   },
   "prettier": {
-    "printWidth": 80,
+    "trailingComma": "all",
     "tabWidth": 2,
-    "useTabs": false,
+    "semi": true,
     "singleQuote": false,
-    "trailingComma": "all"
+    "endOfLine": "lf"
   },
   "scripts": {
     "build:templates": "bun run templates/build.ts",
-    "build": "bun run build:templates && bun build ./src/index.ts --outdir=./dist --target=node && tsc --declaration --emitDeclarationOnly --outDir ./dist",
-    "prepublishOnly": "bun run build",
+    "build": "bun run build:templates && bun build ./src/index.ts --outdir=./dist --target=node && bun build ./src/mcp.ts --outdir=./dist --target=node && tsc --declaration --emitDeclarationOnly --outDir ./dist",
+    "clean": "rm -rf dist",
     "test": "bun test",
+    "typecheck": "bun tsc -p tsconfig.json --noEmit",
+    "format": "bun prettier --write .",
+    "format:check": "bun prettier --check .",
+    "lint:package": "publint",
+    "validate": "bun run format:check && bun run typecheck && bun run test && bun run lint:package",
     "example:demo": "bun run examples/demo.ts",
     "example:github": "bun run examples/github.ts",
-    "example:notion": "bun run examples/notion.ts"
+    "example:notion": "bun run examples/notion.ts",
+    "example:mcp-auth": "bun run examples/mcp-auth.ts",
+    "prepublishOnly": "bun run build && bun run lint:package",
+    "docs:dev": "vitepress dev docs",
+    "docs:build": "vitepress build docs",
+    "docs:preview": "vitepress preview docs",
+    "docs:publish": "bunx gh-pages -d docs/.vitepress/dist"
   }
 }

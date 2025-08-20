@@ -32,12 +32,12 @@ class MockOAuthServer {
     this.server?.stop();
   }
 
-  private handleRequest(req: Request): Response {
+  private async handleRequest(req: Request): Promise<Response> {
     const url = new URL(req.url);
 
     // Dynamic Client Registration endpoint
     if (url.pathname === "/register" && req.method === "POST") {
-      return this.handleClientRegistration(req);
+      return await this.handleClientRegistration(req);
     }
 
     // Authorization endpoint
@@ -47,7 +47,7 @@ class MockOAuthServer {
 
     // Token endpoint
     if (url.pathname === "/token" && req.method === "POST") {
-      return this.handleTokenExchange(req);
+      return await this.handleTokenExchange(req);
     }
 
     // User info endpoint
@@ -219,7 +219,7 @@ async function runScenario(
   scenario: "success" | "error" | "invalid_scope" | "server_error",
   mockServer: MockOAuthServer,
   openBrowser: boolean = true,
-) {
+): Promise<boolean> {
   console.log("\n" + "=".repeat(60));
 
   const scenarioTitles = {
@@ -267,13 +267,14 @@ async function runScenario(
 
   try {
     // Step 3: Start the callback server and trigger authorization
-    // We'll use Promise.all to start the server and make the request simultaneously
-    const [result] = await Promise.all([
-      // Start the OAuth callback server
-      getAuthCode({
+    let resultPromise: Promise<any>;
+
+    if (openBrowser) {
+      // Normal flow: open browser and wait for callback
+      resultPromise = getAuthCode({
         authorizationUrl: authUrl.toString(),
         port: 3000,
-        openBrowser: openBrowser,
+        openBrowser: true,
         timeout: 10000,
         // Using default templates to showcase the enhanced UI
         onRequest: (req) => {
@@ -285,8 +286,44 @@ async function runScenario(
             );
           }
         },
-      }),
-    ]);
+      });
+    } else {
+      // No-browser mode: start server and manually trigger callback
+      resultPromise = getAuthCode({
+        authorizationUrl: authUrl.toString(),
+        port: 3000,
+        openBrowser: false,
+        timeout: 10000,
+        onRequest: (req) => {
+          const url = new URL(req.url);
+          if (url.pathname === "/callback") {
+            console.log(
+              `   Callback received: ${url.pathname}${url.search.slice(0, 50)}...`,
+            );
+          }
+        },
+      });
+
+      // Wait a bit for the server to start, then manually call the authorization endpoint
+      // which will generate the callback URL
+      await new Promise((resolve) => setTimeout(resolve, 500));
+
+      // Fetch the authorization endpoint to get the callback URL
+      const authResponse = await fetch(authUrl.toString());
+      const authHtml = await authResponse.text();
+
+      // Extract the callback URL from the HTML response
+      const callbackMatch = authHtml.match(
+        /window\.location\.href = "([^"]+)"/,
+      );
+      if (callbackMatch) {
+        const callbackUrl = callbackMatch[1];
+        // Manually trigger the callback
+        await fetch(callbackUrl);
+      }
+    }
+
+    const result = await resultPromise;
 
     console.log("\n✅ Authorization successful!");
     console.log(`   Code: ${result.code}`);
@@ -326,6 +363,7 @@ async function runScenario(
     console.log(`   Email: ${userData.email}`);
 
     console.log("\n🎉 Demo scenario completed successfully!");
+    return true;
   } catch (error) {
     if (error instanceof OAuthError) {
       console.log(
@@ -339,10 +377,13 @@ async function runScenario(
         console.log(`   More info: ${error.error_uri}`);
       }
       console.log("\n✅ Error handling worked correctly!");
+      return true; // This is expected for error scenarios
     } else if (error instanceof Error && error.message.includes("timeout")) {
       console.error("\n❌ Request timed out - the mock server may be slow");
+      return false;
     } else {
       console.error("\n❌ Unexpected error:", error);
+      return false;
     }
   }
 }
@@ -380,19 +421,29 @@ async function main() {
 
   try {
     // Run different scenarios with pauses between them
-    await runScenario("success", mockServer, shouldOpenBrowser);
+    const success1 = await runScenario(
+      "success",
+      mockServer,
+      shouldOpenBrowser,
+    );
 
-    console.log("\n" + "─".repeat(60));
-    console.log("⏳ Continuing with error scenario in 2 seconds...");
-    await new Promise((resolve) => setTimeout(resolve, 2000));
+    if (success1) {
+      console.log("\n" + "─".repeat(60));
+      console.log("⏳ Continuing with error scenario in 2 seconds...");
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+    }
 
-    await runScenario("error", mockServer, shouldOpenBrowser);
+    const success2 = await runScenario("error", mockServer, shouldOpenBrowser);
 
     console.log("\n" + "─".repeat(60));
     console.log("⏳ Continuing with invalid scope scenario in 2 seconds...");
     await new Promise((resolve) => setTimeout(resolve, 2000));
 
-    await runScenario("invalid_scope", mockServer, shouldOpenBrowser);
+    const success3 = await runScenario(
+      "invalid_scope",
+      mockServer,
+      shouldOpenBrowser,
+    );
 
     console.log("\n" + "=".repeat(60));
     console.log("🏁 All demo scenarios completed!");

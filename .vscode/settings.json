@@ -2,9 +2,11 @@
   "editor.formatOnSave": true,
   "editor.defaultFormatter": "esbenp.prettier-vscode",
   "cSpell.words": [
+    "bunx",
     "konstantin",
     "kriasoft",
     "modelcontextprotocol",
+    "publint",
     "streamable",
     "tarkus"
   ]
