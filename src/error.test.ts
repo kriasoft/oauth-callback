@@ -22,4 +22,17 @@ describe("OAuthError", () => {
     const error = new OAuthError("invalid_request");
     expect(error instanceof Error).toBe(true);
   });
+  //Default message
+  test("should use error code as message if description is not provided", () => {
+    // Create an error without a description
+    const error = new OAuthError("server_error");
+    expect(error.message).toBe("server_error");
+  });
+  //Error name is set correctly
+  test("should have the correct name property", () => {
+    const error = new OAuthError("any_error");
+    // Check the .name property is set to "OAuthError"
+    expect(error.name).toBe("OAuthError");
+  });
+  //Test the TIMEOUT ERROR
 });
