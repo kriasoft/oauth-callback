@@ -34,5 +34,42 @@ describe("OAuthError", () => {
     // Check the .name property is set to "OAuthError"
     expect(error.name).toBe("OAuthError");
   });
-  //Test the TIMEOUT ERROR
+  //Stack Trace
+  test("should have a stack trace", () => {
+    const error = new OAuthError("unauthorized_client");
+    expect(typeof error.stack).toBe("string");
+    expect(error.stack!.includes("OAuthError")).toBe(true);
+    expect(error.stack!.includes(error.message)).toBe(true);
+  });
+});
+//Test the TIMEOUT ERROR
+describe("TimeoutError", () => {
+  // Test for TimeoutError's name
+  test("should have the correct name property", () => {
+    const error = new TimeoutError();
+    expect(error.name).toBe("TimeoutError");
+  });
+  //TimeoutError's default message
+  test("should use the default timeout message", () => {
+    const error = new TimeoutError(); // No custom message provided
+    expect(error.message).toBe("OAuth callback timed out");
+  });
+  //Test with a custom message
+  test("should use a custom message if provided", () => {
+    const error = new TimeoutError("It took too long, please try again.");
+    expect(error.message).toBe("It took too long, please try again.");
+  });
+  //Stack Trace
+  test("should have a stack trace", () => {
+    const error = new OAuthError("unauthorized_client");
+    expect(typeof error.stack).toBe("string");
+    expect(error.stack!.includes("OAuthError")).toBe(true);
+    expect(error.stack!.includes(error.message)).toBe(true);
+  });
+  test("should have a stack trace", () => {
+    const error = new TimeoutError("unauthorized_client");
+    expect(typeof error.stack).toBe("string");
+    expect(error.stack!.includes("TimeoutError")).toBe(true);
+    expect(error.stack!.includes(error.message)).toBe(true);
+  });
 });
