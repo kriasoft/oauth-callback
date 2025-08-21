@@ -18,4 +18,8 @@ describe("OAuthError", () => {
     expect(e.stack!.startsWith("OAuthError")).toBeTrue();
   });
   //Error inheritance from native Error class
+  test("should be an instance of the native Error class", () => {
+    const error = new OAuthError("invalid_request");
+    expect(error instanceof Error).toBe(true);
+  });
 });
