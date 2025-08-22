@@ -4,6 +4,7 @@
 [![npm downloads](https://img.shields.io/npm/dm/oauth-callback.svg)](https://npmjs.com/package/oauth-callback)
 [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/kriasoft/oauth-callback/blob/main/LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-Ready-blue.svg)](https://www.typescriptlang.org/)
+[![Run on Replit](https://img.shields.io/badge/Run%20on-Replit-orange.svg)](https://replit.com/new/github/kriasoft/oauth-callback)
 
 A lightweight OAuth 2.0 callback handler for Node.js, Deno, and Bun with built-in browser flow and MCP SDK integration. Perfect for CLI tools, desktop applications, and development environments that need to capture OAuth authorization codes.
 
