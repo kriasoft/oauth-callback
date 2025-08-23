@@ -1,12 +1,22 @@
-modules = ["web", "bun-1.2"]
-run = "bun test"
+modules = ["bun-1.2"]
+run = "bun --watch run examples/demo.ts"
+entrypoint = "examples/demo.ts"
 
 [nix]
 channel = "stable-25_05"
+
+[env]
+# Get these from your OAuth provider's app settings
+# OAUTH_CLIENT_ID = ""
+# OAUTH_CLIENT_SECRET = ""
+# Optional: PORT = "3000"
+
+[interpreter]
+command = ["bash", "-c"]
 
 [deployment]
 run = ["sh", "-c", "bun test"]
 
 [[ports]]
-localPort = 8080
+localPort = 3000
 externalPort = 80
