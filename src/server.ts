@@ -100,6 +100,7 @@ abstract class BaseCallbackServer implements CallbackServer {
   protected successHtml?: string;
   protected errorHtml?: string;
   protected onRequest?: (req: Request) => void;
+  protected callbackReceived = false;
   private abortHandler?: () => void;
   private signal?: AbortSignal;
 
@@ -142,6 +143,7 @@ abstract class BaseCallbackServer implements CallbackServer {
 
     // Resolve the promise for the waiting listener.
     listener.resolve(params);
+    this.callbackReceived = true;
 
     return new Response(
       generateCallbackHTML(params, this.successHtml, this.errorHtml),
@@ -164,6 +166,8 @@ abstract class BaseCallbackServer implements CallbackServer {
         new Error(`A listener for the path "${path}" is already active.`),
       );
 
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
     try {
       // Race a promise that waits for the callback against a promise that rejects on timeout.
       return await Promise.race([
@@ -173,7 +177,7 @@ abstract class BaseCallbackServer implements CallbackServer {
         }),
         // This promise rejects after the specified timeout.
         new Promise<CallbackResult>((_, reject) => {
-          setTimeout(() => {
+          timeoutId = setTimeout(() => {
             reject(
               new Error(
                 `OAuth callback timeout after ${timeout}ms waiting for ${path}`,
@@ -183,8 +187,9 @@ abstract class BaseCallbackServer implements CallbackServer {
         }),
       ]);
     } finally {
-      // CRITICAL: Always clean up the listener to prevent memory leaks,
-      // regardless of whether the promise resolved or rejected.
+      // CRITICAL: Always clean up the listener and timeout to prevent memory leaks
+      // and allow the process to exit cleanly.
+      if (timeoutId) clearTimeout(timeoutId);
       this.callbackListeners.delete(path);
     }
   }
@@ -210,7 +215,7 @@ abstract class BaseCallbackServer implements CallbackServer {
  * Bun runtime implementation using Bun.serve().
  */
 class BunCallbackServer extends BaseCallbackServer {
-  private server?: Bun.Server;
+  private server?: Bun.Server<unknown>;
 
   public async start(options: ServerOptions): Promise<void> {
     this.setup(options);
@@ -225,7 +230,11 @@ class BunCallbackServer extends BaseCallbackServer {
 
   protected async stopServer(): Promise<void> {
     if (!this.server) return;
-    this.server.stop();
+    // Brief delay to allow response bytes to flush to the client
+    if (this.callbackReceived) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    this.server.stop(true); // Force close connections
     this.server = undefined;
   }
 }
@@ -299,6 +308,7 @@ class NodeCallbackServer extends BaseCallbackServer {
 
   protected async stopServer(): Promise<void> {
     if (!this.server) return;
+    this.server.closeAllConnections();
     return new Promise((resolve) => {
       this.server?.close(() => {
         this.server = undefined;
