@@ -17,7 +17,7 @@ A lightweight OAuth 2.0 callback handler for Node.js, Deno, and Bun with built-i
 - 🚀 **Multi-runtime support** - Works with Node.js 18+, Deno, and Bun
 - 🔒 **Secure localhost-only server** for OAuth callbacks
 - 🤖 **MCP SDK integration** - Built-in OAuth provider for Model Context Protocol
-- ⚡ **Minimal dependencies** - Only requires `open` package
+- ⚡ **Single dependency** - Only requires `open` for browser launching
 - 🎯 **TypeScript support** out of the box
 - 🛡️ **Comprehensive OAuth error handling** with detailed error classes
 - 🔄 **Automatic server cleanup** after callback
@@ -105,34 +105,6 @@ const result = await getAuthCode({
   port: 8080, // Use custom port (default: 3000)
   timeout: 60000, // Custom timeout in ms (default: 30000)
 });
-```
-
-### Handling Different OAuth Providers
-
-```typescript
-// Google OAuth
-const googleAuth = await getAuthCode(
-  "https://accounts.google.com/o/oauth2/v2/auth?" +
-    new URLSearchParams({
-      client_id: process.env.GOOGLE_CLIENT_ID,
-      redirect_uri: "http://localhost:3000/callback",
-      response_type: "code",
-      scope: "openid email profile",
-      access_type: "offline",
-    }),
-);
-
-// Microsoft OAuth
-const microsoftAuth = await getAuthCode(
-  "https://login.microsoftonline.com/common/oauth2/v2.0/authorize?" +
-    new URLSearchParams({
-      client_id: process.env.MICROSOFT_CLIENT_ID,
-      redirect_uri: "http://localhost:3000/callback",
-      response_type: "code",
-      scope: "user.read",
-      response_mode: "query",
-    }),
-);
 ```
 
 ### MCP SDK Integration
@@ -328,18 +300,30 @@ TokenStore implementation for persistent token storage.
 
 ## How It Works
 
-1. **Server Creation**: Creates a temporary HTTP server on the specified port
-2. **Browser Launch**: Opens the authorization URL in the user's default browser
-3. **Callback Handling**: Waits for the OAuth provider to redirect back with the authorization code
-4. **Cleanup**: Automatically closes the server after receiving the callback
-5. **Result**: Returns the authorization code and any additional parameters
+```
+┌─────────────┐     ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+│  Your App   │────▶│Local Server │────▶│   Browser   │────▶│OAuth Server │
+│             │     │ :3000       │     │             │     │             │
+│ getAuthCode │     │             │◀────│  Callback   │◀────│  Redirect   │
+│     ▼       │◀────│ Returns     │     │ /callback   │     │  with code  │
+│   {code}    │     │ auth code   │     │             │     │             │
+└─────────────┘     └─────────────┘     └─────────────┘     └─────────────┘
+```
+
+1. **Server Creation** — Spins up a temporary localhost HTTP server
+2. **Browser Launch** — Opens the authorization URL in the default browser
+3. **User Authorization** — User grants permission on the OAuth provider's page
+4. **Callback Capture** — Provider redirects to localhost with the authorization code
+5. **Cleanup** — Server closes automatically, code is returned to your app
 
 ## Security Considerations
 
-- The server only accepts connections from localhost
-- Server is closed immediately after receiving the callback
-- No data is stored persistently
-- State parameter validation should be implemented by the application
+- **Localhost-only binding** — Server rejects non-local connections
+- **Ephemeral server** — Shuts down immediately after receiving the callback
+- **No credential logging** — Tokens and codes are never written to logs
+- **State parameter support** — Pass and validate state to prevent CSRF attacks
+- **Configurable timeouts** — Server auto-terminates if callback isn't received
+- **PKCE compatible** — Works with authorization servers that require PKCE
 
 ## Running the Examples
 

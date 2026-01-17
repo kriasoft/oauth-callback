@@ -1,7 +1,7 @@
 {
   "name": "oauth-callback",
-  "version": "1.2.1",
-  "description": "Lightweight OAuth 2.0 callback handler for Node.js, Deno, and Bun with built-in browser flow, MCP support, and zero dependencies",
+  "version": "1.2.5",
+  "description": "Lightweight OAuth 2.0 callback handler for Node.js, Deno, and Bun with built-in browser flow and MCP SDK integration",
   "keywords": [
     "oauth",
     "oauth2",
@@ -64,7 +64,7 @@
     "./package.json": "./package.json"
   },
   "dependencies": {
-    "open": "^10.2.0"
+    "open": "^11.0.0"
   },
   "peerDependencies": {
     "@modelcontextprotocol/sdk": ">=1.17.0 <2",
@@ -79,16 +79,16 @@
     }
   },
   "devDependencies": {
-    "@modelcontextprotocol/sdk": "^1.17.3",
-    "@types/bun": "^1.2.20",
-    "@types/deno": "^2.3.0",
-    "@types/node": "^24.3.0",
+    "@modelcontextprotocol/sdk": "^1.25.2",
+    "@types/bun": "^1.3.6",
+    "@types/deno": "^2.5.0",
+    "@types/node": "^24.10.9",
     "@types/open": "^6.2.1",
     "bun-types": "^1.2.20",
-    "mermaid": "^11.9.0",
-    "prettier": "^3.6.2",
-    "publint": "^0.3.12",
-    "typescript": "^5.9.2",
+    "mermaid": "^11.12.2",
+    "prettier": "^3.8.0",
+    "publint": "^0.3.16",
+    "typescript": "^5.9.3",
     "vitepress": "^1.6.4",
     "vitepress-plugin-mermaid": "^2.0.17"
   },
@@ -104,6 +104,7 @@
     "build": "bun run build:templates && bun build ./src/index.ts --outdir=./dist --target=node && bun build ./src/mcp.ts --outdir=./dist --target=node && tsc --declaration --emitDeclarationOnly --outDir ./dist",
     "clean": "rm -rf dist",
     "test": "bun test",
+    "test:login": "bun run scripts/test-login.ts",
     "typecheck": "bun tsc -p tsconfig.json --noEmit",
     "format": "bun prettier --write .",
     "format:check": "bun prettier --check .",
