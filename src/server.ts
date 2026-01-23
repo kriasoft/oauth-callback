@@ -285,6 +285,8 @@ class NodeCallbackServer extends BaseCallbackServer {
           const request = this.nodeToWebRequest(req, port, hostname);
           const response = this.handleRequest(request);
 
+          res.shouldKeepAlive = false;
+
           res.writeHead(
             response.status,
             Object.fromEntries(response.headers.entries()),
@@ -308,7 +310,6 @@ class NodeCallbackServer extends BaseCallbackServer {
 
   protected async stopServer(): Promise<void> {
     if (!this.server) return;
-    this.server.closeAllConnections();
     return new Promise((resolve) => {
       this.server?.close(() => {
         this.server = undefined;
