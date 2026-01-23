@@ -78,9 +78,9 @@ export async function getAuthCode(
       onRequest,
     });
 
-    if (openBrowser) {
+    if (openBrowser === true) {
       await open(authorizationUrl);
-    } else {
+    } else if (openBrowser === false) {
       // Test mode: trigger mock provider redirect without browser
       fetch(authorizationUrl)
         .then(async (response) => {

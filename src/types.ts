@@ -42,9 +42,12 @@ export interface GetAuthCodeOptions {
   /**
    * Whether to automatically open the authorization URL in the user's default browser.
    * Set to false for testing or when you want to handle browser opening manually.
+   * If set to "manual", the authorization URL will not be opened automatically and
+   * the return value will be an object containing a promise to get the auth code and
+   * a promise to cleanup resources (close the server).
    * @default true
    */
-  openBrowser?: boolean;
+  openBrowser?: boolean | "manual";
 
   /**
    * Custom HTML content to display when authorization is successful.
