@@ -13,7 +13,7 @@ on:
 jobs:
   publish:
     runs-on: ubuntu-latest
-    environment: npm
+    environment: release
     permissions:
       contents: read
       id-token: write
@@ -37,7 +37,7 @@ jobs:
       - name: Verify version match
         run: |
           TAG_REF="${{ github.event.inputs.tag || github.ref_name }}"
-          PACKAGE_VERSION="v$(node -p \"require('./package.json').version\")"
+          PACKAGE_VERSION="v$(node -p 'require("./package.json").version')"
           if [ "$PACKAGE_VERSION" != "$TAG_REF" ]; then
             echo "Error: Package version ($PACKAGE_VERSION) doesn't match tag ($TAG_REF)"
             exit 1
