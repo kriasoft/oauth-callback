@@ -11,6 +11,7 @@
  * or external OAuth providers. Perfect for testing and learning.
  */
 
+import open from "open";
 import { getAuthCode, OAuthError } from "../src/index";
 import type { Server } from "bun";
 
@@ -274,12 +275,10 @@ async function runScenario(
       resultPromise = getAuthCode({
         authorizationUrl: authUrl.toString(),
         port: 3000,
-        openBrowser: true,
+        launch: open,
         timeout: 10000,
-        // Using default templates to showcase the enhanced UI
         onRequest: (req) => {
           const url = new URL(req.url);
-          // Only log the actual callback, not favicon requests
           if (url.pathname === "/callback") {
             console.log(
               `   Callback received: ${url.pathname}${url.search.slice(0, 50)}...`,
@@ -292,7 +291,6 @@ async function runScenario(
       resultPromise = getAuthCode({
         authorizationUrl: authUrl.toString(),
         port: 3000,
-        openBrowser: false,
         timeout: 10000,
         onRequest: (req) => {
           const url = new URL(req.url);
@@ -304,22 +302,15 @@ async function runScenario(
         },
       });
 
-      // Wait a bit for the server to start, then manually call the authorization endpoint
-      // which will generate the callback URL
+      // Wait for server to start, then simulate OAuth provider redirect
       await new Promise((resolve) => setTimeout(resolve, 500));
-
-      // Fetch the authorization endpoint to get the callback URL
       const authResponse = await fetch(authUrl.toString());
       const authHtml = await authResponse.text();
-
-      // Extract the callback URL from the HTML response
       const callbackMatch = authHtml.match(
         /window\.location\.href = "([^"]+)"/,
       );
       if (callbackMatch) {
-        const callbackUrl = callbackMatch[1];
-        // Manually trigger the callback
-        await fetch(callbackUrl);
+        await fetch(callbackMatch[1]);
       }
     }
 

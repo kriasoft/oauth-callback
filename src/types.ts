@@ -34,17 +34,26 @@ export interface GetAuthCodeOptions {
 
   /**
    * Timeout in milliseconds to wait for OAuth callback.
-   * If no callback is received within this time, the operation will fail.
+   * Starts when the callback server is ready; launch timing does not delay it.
    * @default 30000
    */
   timeout?: number;
 
   /**
-   * Whether to automatically open the authorization URL in the user's default browser.
-   * Set to false for testing or when you want to handle browser opening manually.
-   * @default true
+   * Optional callback to launch the authorization URL.
+   * Called after the callback server starts, best-effort (errors are swallowed).
+   * If omitted, the library does nothing — caller is responsible for opening the URL.
+   *
+   * Returns `unknown` (not `void`) to accept any launcher without casting—e.g.,
+   * the `open` package returns `Promise<ChildProcess>`. Return value is ignored.
+   *
+   * @example
+   * ```typescript
+   * import open from "open";
+   * await getAuthCode({ authorizationUrl: url, launch: open });
+   * ```
    */
-  openBrowser?: boolean;
+  launch?: (url: string) => unknown;
 
   /**
    * Custom HTML content to display when authorization is successful.

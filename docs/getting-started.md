@@ -22,28 +22,31 @@ Install the package using your preferred package manager:
 ::: code-group
 
 ```bash [Bun]
-bun add oauth-callback
+bun add oauth-callback open
 ```
 
 ```bash [npm]
-npm install oauth-callback
+npm install oauth-callback open
 ```
 
 ```bash [pnpm]
-pnpm add oauth-callback
+pnpm add oauth-callback open
 ```
 
 ```bash [Yarn]
-yarn add oauth-callback
+yarn add oauth-callback open
 ```
 
 :::
+
+> **Note:** The `open` package is optional but recommended for launching the browser. Omit it for headless environments.
 
 ## Basic Usage
 
 The simplest way to capture an OAuth authorization code is with the `getAuthCode()` function:
 
 ```typescript
+import open from "open";
 import { getAuthCode } from "oauth-callback";
 
 // Construct your OAuth authorization URL
@@ -56,8 +59,8 @@ const authUrl =
     state: crypto.randomUUID(), // For CSRF protection
   });
 
-// Get the authorization code
-const result = await getAuthCode(authUrl);
+// Get the authorization code (launch: open opens the browser)
+const result = await getAuthCode({ authorizationUrl: authUrl, launch: open });
 
 console.log("Authorization code:", result.code);
 console.log("State:", result.state);
@@ -106,6 +109,7 @@ First, register your application with your OAuth provider:
 Create a file `auth.ts` with your OAuth implementation:
 
 ```typescript
+import open from "open";
 import { getAuthCode, OAuthError } from "oauth-callback";
 
 async function authenticate() {
@@ -122,7 +126,10 @@ async function authenticate() {
   try {
     // Get authorization code
     console.log("Opening browser for authentication...");
-    const result = await getAuthCode(authUrl.toString());
+    const result = await getAuthCode({
+      authorizationUrl: authUrl.toString(),
+      launch: open,
+    });
 
     // Validate state
     if (result.state !== state) {
@@ -215,12 +222,14 @@ For Model Context Protocol applications, use the `browserAuth()` provider for se
 ### Quick Setup
 
 ```typescript
+import open from "open";
 import { browserAuth, inMemoryStore } from "oauth-callback/mcp";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 
 // Create OAuth provider for MCP
 const authProvider = browserAuth({
+  launch: open,
   store: inMemoryStore(), // Or fileStore() for persistence
   scope: "read write",
 });
@@ -373,10 +382,11 @@ try {
 Proper error handling ensures a good user experience:
 
 ```typescript
+import open from "open";
 import { getAuthCode, OAuthError } from "oauth-callback";
 
 try {
-  const result = await getAuthCode(authUrl);
+  const result = await getAuthCode({ authorizationUrl: authUrl, launch: open });
   // Success path
 } catch (error) {
   if (error instanceof OAuthError) {
@@ -511,15 +521,12 @@ Also update your OAuth app's redirect URI to match.
 :::
 
 ::: details Browser Doesn't Open
-If the browser doesn't open automatically:
+If you're in a headless environment or the browser doesn't open:
 
 ```typescript
-const result = await getAuthCode({
-  authorizationUrl: authUrl,
-  openBrowser: false, // Disable auto-open
-});
-
+// Headless mode - print URL for manual opening
 console.log(`Please open: ${authUrl}`);
+const result = await getAuthCode({ authorizationUrl: authUrl });
 ```
 
 :::

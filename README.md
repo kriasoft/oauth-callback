@@ -31,33 +31,38 @@ A lightweight OAuth 2.0 callback handler for Node.js, Deno, and Bun with built-i
 ## Installation
 
 ```bash
-bun add oauth-callback
+bun add oauth-callback open
 ```
 
 Or with npm:
 
 ```bash
-npm install oauth-callback
+npm install oauth-callback open
 ```
+
+> **Note:** The `open` package is optional but recommended for browser launching. If using pnpm, install it explicitly: `pnpm add open`
 
 ## Quick Start
 
 ```typescript
+import open from "open";
 import { getAuthCode, OAuthError } from "oauth-callback";
 
-// Simple usage
-const result = await getAuthCode(
-  "https://example.com/oauth/authorize?client_id=xxx&redirect_uri=http://localhost:3000/callback",
-);
+// Simple usage - pass `open` to launch browser
+const result = await getAuthCode({
+  authorizationUrl:
+    "https://example.com/oauth/authorize?client_id=xxx&redirect_uri=http://localhost:3000/callback",
+  launch: open,
+});
 console.log("Authorization code:", result.code);
 
 // MCP SDK integration - use specific import
 import { browserAuth, fileStore } from "oauth-callback/mcp";
-const authProvider = browserAuth({ store: fileStore() });
+const authProvider = browserAuth({ launch: open, store: fileStore() });
 
 // Or via namespace import
 import { mcp } from "oauth-callback";
-const authProvider = mcp.browserAuth({ store: mcp.fileStore() });
+const authProvider = mcp.browserAuth({ launch: open, store: mcp.fileStore() });
 ```
 
 ## Usage Examples
@@ -65,6 +70,7 @@ const authProvider = mcp.browserAuth({ store: mcp.fileStore() });
 ### Basic OAuth Flow
 
 ```typescript
+import open from "open";
 import { getAuthCode, OAuthError } from "oauth-callback";
 
 async function authenticate() {
@@ -78,7 +84,10 @@ async function authenticate() {
     });
 
   try {
-    const result = await getAuthCode(authUrl);
+    const result = await getAuthCode({
+      authorizationUrl: authUrl,
+      launch: open,
+    });
     console.log("Authorization code:", result.code);
     console.log("State:", result.state);
 
@@ -98,10 +107,12 @@ async function authenticate() {
 ### Custom Port Configuration
 
 ```typescript
+import open from "open";
 import { getAuthCode } from "oauth-callback";
 
 const result = await getAuthCode({
   authorizationUrl: authUrl,
+  launch: open,
   port: 8080, // Use custom port (default: 3000)
   timeout: 60000, // Custom timeout in ms (default: 30000)
 });
@@ -175,9 +186,12 @@ const authProvider = browserAuth({
 ### Advanced Usage
 
 ```typescript
+import open from "open";
+
 // With custom HTML templates and logging
 const result = await getAuthCode({
   authorizationUrl: authUrl,
+  launch: open,
   port: 3000,
   hostname: "127.0.0.1", // Bind to specific IP
   successHtml: "<h1>Success! You can close this window.</h1>",
@@ -209,7 +223,7 @@ try {
 
 ### `getAuthCode(input)`
 
-Starts a local HTTP server and opens the authorization URL in the user's browser.
+Starts a local HTTP server to capture OAuth callbacks. Optionally launches the authorization URL via the `launch` callback.
 
 #### Parameters
 
@@ -219,7 +233,7 @@ Starts a local HTTP server and opens the authorization URL in the user's browser
   - `hostname` (string): Hostname to bind the server to (default: "localhost")
   - `callbackPath` (string): URL path for the OAuth callback (default: "/callback")
   - `timeout` (number): Timeout in milliseconds (default: 30000)
-  - `openBrowser` (boolean): Whether to open browser automatically (default: true)
+  - `launch` (function): Optional callback to launch the authorization URL (e.g., `open`)
   - `successHtml` (string): Custom HTML to display on successful authorization
   - `errorHtml` (string): Custom HTML to display on authorization error
   - `signal` (AbortSignal): AbortSignal for cancellation support
@@ -311,7 +325,7 @@ TokenStore implementation for persistent token storage.
 ```
 
 1. **Server Creation** — Spins up a temporary localhost HTTP server
-2. **Browser Launch** — Opens the authorization URL in the default browser
+2. **Browser Launch** — Opens the authorization URL (if `launch` callback provided)
 3. **User Authorization** — User grants permission on the OAuth provider's page
 4. **Callback Capture** — Provider redirects to localhost with the authorization code
 5. **Cleanup** — Server closes automatically, code is returned to your app
@@ -420,7 +434,11 @@ bun run example:notion  # Notion MCP example with Dynamic Client Registration
 If port 3000 is already in use, specify a different port:
 
 ```typescript
-const result = await getAuthCode({ authorizationUrl: authUrl, port: 8080 });
+const result = await getAuthCode({
+  authorizationUrl: authUrl,
+  launch: open,
+  port: 8080,
+});
 ```
 
 ### Firewall Warnings
@@ -433,13 +451,9 @@ If the browser doesn't open automatically, manually navigate to the authorizatio
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+Contributions are welcome! See [CONTRIBUTING.md](.github/CONTRIBUTING.md) for setup instructions.
 
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+**Maintainers wanted** — we're looking for people to help maintain this project. If interested, reach out on [Discord](https://discord.gg/bSsv7XM) or open an issue.
 
 ## License
 

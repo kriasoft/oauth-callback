@@ -7,6 +7,7 @@
 
 import type { Server as HttpServer } from "node:http";
 import type { IncomingMessage } from "node:http";
+import { TimeoutError } from "./errors";
 import { successTemplate, renderError } from "./templates";
 
 /**
@@ -179,7 +180,7 @@ abstract class BaseCallbackServer implements CallbackServer {
         new Promise<CallbackResult>((_, reject) => {
           timeoutId = setTimeout(() => {
             reject(
-              new Error(
+              new TimeoutError(
                 `OAuth callback timeout after ${timeout}ms waiting for ${path}`,
               ),
             );

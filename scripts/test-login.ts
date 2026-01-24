@@ -9,6 +9,7 @@
  * Run with: bun test:login
  */
 
+import open from "open";
 import { getAuthCode } from "../src/index";
 
 const OAUTH_PORT = 8765;
@@ -65,6 +66,7 @@ try {
     authorizationUrl: authUrl,
     port: CALLBACK_PORT,
     timeout: 60000,
+    launch: open,
   });
 
   console.log("✅ Success!");

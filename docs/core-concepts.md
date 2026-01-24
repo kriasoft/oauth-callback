@@ -54,8 +54,10 @@ OAuth Callback creates a temporary HTTP server on localhost that:
 4. **Handles edge cases**: Timeouts, errors, user cancellation
 
 ```typescript
+import open from "open";
+
 // This single function handles all the complexity
-const result = await getAuthCode(authorizationUrl);
+const result = await getAuthCode({ authorizationUrl, launch: open });
 ```
 
 ## Architecture Overview
@@ -120,7 +122,7 @@ interface GetAuthCodeOptions {
   authorizationUrl: string; // OAuth provider URL
   port?: number; // Server port (default: 3000)
   timeout?: number; // Timeout in ms (default: 30000)
-  openBrowser?: boolean; // Auto-open browser (default: true)
+  launch?: (url: string) => unknown; // Optional URL launcher
   signal?: AbortSignal; // For cancellation
   // ... more options
 }
@@ -190,10 +192,8 @@ stateDiagram-v2
     [*] --> NoToken: Initial State
     NoToken --> Authorizing: User initiates OAuth
     Authorizing --> HasToken: Successful auth
-    HasToken --> Refreshing: Token expired
-    Refreshing --> HasToken: Token refreshed
+    HasToken --> Authorizing: Token expired
     HasToken --> NoToken: User logs out
-    Refreshing --> Authorizing: Refresh failed
 ```
 
 ## MCP Integration Pattern
@@ -326,7 +326,7 @@ if (!isLocalhost(request.socket.remoteAddress)) {
 - **Memory storage option**: No persistence
 - **File permissions**: Restrictive when using file store
 - **No logging**: Tokens never logged or exposed
-- **Refresh handling**: Automatic token refresh
+- **Expiry handling**: Automatic re-auth when tokens expire
 
 ## Template System
 
@@ -448,15 +448,19 @@ Monitor or modify requests with callbacks:
 }
 ```
 
-### Browser Control
+### Custom URL Launcher
 
-Customize browser launching:
+Customize how the authorization URL is opened:
 
 ```typescript
-{
-  openBrowser: false,  // Manual browser opening
-  // Or provide custom launcher
-}
+import open from "open";
+
+// Use system browser
+await getAuthCode({ authorizationUrl, launch: open });
+
+// Headless mode - omit launch, print URL manually
+console.log(`Open: ${authorizationUrl}`);
+await getAuthCode({ authorizationUrl });
 ```
 
 ## Best Practices
