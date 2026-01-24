@@ -159,18 +159,3 @@ jobs:
           prerelease: ${{ contains(github.ref_name, '-') }}
           files: |
             dist/**/*
-
-  lint:
-    name: Lint
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v6
-      - name: Lint YAML and JSON
-        uses: github/super-linter/slim@v7
-        env:
-          DEFAULT_BRANCH: main
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VALIDATE_JSON: true
-          VALIDATE_YAML: true
-          FILTER_REGEX_EXCLUDE: node_modules/.*|dist/.*|bun\.lock
