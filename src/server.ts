@@ -162,36 +162,36 @@ abstract class BaseCallbackServer implements CallbackServer {
     path: string,
     timeout: number,
   ): Promise<CallbackResult> {
-    if (this.callbackListeners.has(path))
+    if (!path) throw new Error("Callback path is required");
+    const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+
+    if (this.callbackListeners.has(normalizedPath))
       return Promise.reject(
-        new Error(`A listener for the path "${path}" is already active.`),
+        new Error(
+          `A listener for the path "${normalizedPath}" is already active.`,
+        ),
       );
 
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
 
     try {
-      // Race a promise that waits for the callback against a promise that rejects on timeout.
       return await Promise.race([
-        // This promise is resolved or rejected by the handleRequest method.
         new Promise<CallbackResult>((resolve, reject) => {
-          this.callbackListeners.set(path, { resolve, reject });
+          this.callbackListeners.set(normalizedPath, { resolve, reject });
         }),
-        // This promise rejects after the specified timeout.
         new Promise<CallbackResult>((_, reject) => {
           timeoutId = setTimeout(() => {
             reject(
               new TimeoutError(
-                `OAuth callback timeout after ${timeout}ms waiting for ${path}`,
+                `OAuth callback timeout after ${timeout}ms waiting for ${normalizedPath}`,
               ),
             );
           }, timeout);
         }),
       ]);
     } finally {
-      // CRITICAL: Always clean up the listener and timeout to prevent memory leaks
-      // and allow the process to exit cleanly.
       if (timeoutId) clearTimeout(timeoutId);
-      this.callbackListeners.delete(path);
+      this.callbackListeners.delete(normalizedPath);
     }
   }
 
@@ -251,11 +251,6 @@ class DenoCallbackServer extends BaseCallbackServer {
     const { port, hostname = "localhost" } = options;
     this.abortController = new AbortController();
 
-    // The user's signal will abort our internal controller.
-    options.signal?.addEventListener("abort", () =>
-      this.abortController?.abort(),
-    );
-
     Deno.serve(
       { port, hostname, signal: this.abortController.signal },
       (request: Request) => this.handleRequest(request),
@@ -294,15 +289,11 @@ class NodeCallbackServer extends BaseCallbackServer {
           );
           const body = await response.text();
           res.end(body);
-        } catch (error) {
+        } catch {
           res.writeHead(500);
           res.end("Internal Server Error");
         }
       });
-
-      // Tie server closing to the abort signal if provided.
-      if (options.signal)
-        options.signal.addEventListener("abort", () => this.server?.close());
 
       this.server.listen(port, hostname, () => resolve());
       this.server.on("error", reject);
