@@ -22,6 +22,13 @@ export { fileStore } from "./storage/file";
 import * as mcp from "./mcp";
 export { mcp };
 
+async function authorizationUrlToOptions(
+  input: string,
+): Promise<GetAuthCodeOptions> {
+  const open = await import("open");
+  return { authorizationUrl: input, launch: open.default };
+}
+
 /**
  * Captures OAuth authorization code via localhost callback.
  * Starts a temporary server, optionally launches auth URL, waits for redirect.
@@ -51,10 +58,9 @@ export async function getAuthCode(
   input: GetAuthCodeOptions | string,
 ): Promise<CallbackResult> {
   const options: GetAuthCodeOptions =
-    typeof input === "string" ? { authorizationUrl: input } : input;
+    typeof input === "string" ? await authorizationUrlToOptions(input) : input;
 
   const {
-    authorizationUrl,
     port = 3000,
     hostname = "localhost",
     timeout = 30000,
@@ -63,7 +69,6 @@ export async function getAuthCode(
     errorHtml,
     signal,
     onRequest,
-    launch,
   } = options;
 
   const server = createCallbackServer();
@@ -79,7 +84,11 @@ export async function getAuthCode(
     });
 
     // Best-effort launch: fire-and-forget, swallow errors
-    if (launch) void Promise.resolve(launch(authorizationUrl)).catch(() => {});
+    if ("launch" in options && "authorizationUrl" in options) {
+      void Promise.resolve(options.launch(options.authorizationUrl)).catch(
+        () => {},
+      );
+    }
 
     const result = await server.waitForCallback(callbackPath, timeout);
 

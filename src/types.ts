@@ -4,13 +4,7 @@
 /**
  * Configuration options for OAuth authorization code flow
  */
-export interface GetAuthCodeOptions {
-  /**
-   * OAuth authorization URL that the user will be redirected to.
-   * Should include all necessary query parameters like client_id, redirect_uri, etc.
-   */
-  authorizationUrl: string;
-
+interface GetAuthCodeOptionsBase {
   /**
    * Port for the local callback server. Make sure this matches the
    * redirect_uri registered with your OAuth provider.
@@ -40,22 +34,6 @@ export interface GetAuthCodeOptions {
   timeout?: number;
 
   /**
-   * Optional callback to launch the authorization URL.
-   * Called after the callback server starts, best-effort (errors are swallowed).
-   * If omitted, the library does nothing — caller is responsible for opening the URL.
-   *
-   * Returns `unknown` (not `void`) to accept any launcher without casting—e.g.,
-   * the `open` package returns `Promise<ChildProcess>`. Return value is ignored.
-   *
-   * @example
-   * ```typescript
-   * import open from "open";
-   * await getAuthCode({ authorizationUrl: url, launch: open });
-   * ```
-   */
-  launch?: (url: string) => unknown;
-
-  /**
    * Custom HTML content to display when authorization is successful.
    * If not provided, a default success page with auto-close functionality is used.
    */
@@ -81,3 +59,31 @@ export interface GetAuthCodeOptions {
    */
   onRequest?: (req: Request) => void;
 }
+
+interface GetAuthCodeOptionsLaunch extends GetAuthCodeOptionsBase {
+  /**
+   * OAuth authorization URL that the user will be redirected to.
+   * Should include all necessary query parameters like client_id, redirect_uri, etc.
+   */
+  authorizationUrl: string;
+
+  /**
+   * Callback to launch the authorization URL.
+   * Called after the callback server starts, best-effort (errors are swallowed).
+   * If omitted, the library does nothing — caller is responsible for opening the URL.
+   *
+   * Returns `unknown` (not `void`) to accept any launcher without casting—e.g.,
+   * the `open` package returns `Promise<ChildProcess>`. Return value is ignored.
+   *
+   * @example
+   * ```typescript
+   * import open from "open";
+   * await getAuthCode({ authorizationUrl: url, launch: open });
+   * ```
+   */
+  launch: (url: string) => unknown;
+}
+
+export type GetAuthCodeOptions =
+  | GetAuthCodeOptionsBase
+  | GetAuthCodeOptionsLaunch;
