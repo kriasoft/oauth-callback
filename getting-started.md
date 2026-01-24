@@ -257,24 +257,29 @@ Choose between ephemeral and persistent token storage:
 ::: code-group
 
 ```typescript [Ephemeral (Memory)]
+import open from "open";
 import { browserAuth, inMemoryStore } from "oauth-callback/mcp";
 
 // Tokens are lost when the process exits
 const authProvider = browserAuth({
+  launch: open,
   store: inMemoryStore(),
 });
 ```
 
 ```typescript [Persistent (File)]
+import open from "open";
 import { browserAuth, fileStore } from "oauth-callback/mcp";
 
 // Tokens persist across sessions
 const authProvider = browserAuth({
+  launch: open,
   store: fileStore(), // Saves to ~/.mcp/tokens.json
 });
 
 // Or specify custom location
 const customAuth = browserAuth({
+  launch: open,
   store: fileStore("/path/to/tokens.json"),
 });
 ```
@@ -286,10 +291,13 @@ const customAuth = browserAuth({
 If you have pre-registered OAuth credentials:
 
 ```typescript
+import open from "open";
+
 const authProvider = browserAuth({
   clientId: "your-client-id",
   clientSecret: "your-client-secret",
   scope: "read write",
+  launch: open,
   store: fileStore(),
   storeKey: "my-app", // Namespace for multiple apps
 });
@@ -544,7 +552,10 @@ On first run, your OS firewall may show a warning. Allow connections for:
 For MCP apps with token refresh issues:
 
 ```typescript
+import open from "open";
+
 const authProvider = browserAuth({
+  launch: open,
   store: fileStore(), // Use persistent storage
   authTimeout: 300000, // Increase timeout to 5 minutes
 });

@@ -347,7 +347,10 @@ const authProvider = browserAuth({
 Debug OAuth flow with detailed logging:
 
 ```typescript
+import open from "open";
+
 const authProvider = browserAuth({
+  launch: open,
   onRequest(req) {
     const url = new URL(req.url);
     const timestamp = new Date().toISOString();
@@ -369,8 +372,11 @@ const authProvider = browserAuth({
 Support multiple Notion accounts:
 
 ```typescript
+import open from "open";
+
 function createNotionAuth(accountName: string) {
   return browserAuth({
+    launch: open,
     store: fileStore(`~/.mcp/notion-${accountName}.json`),
     storeKey: `notion-${accountName}`,
     port: 3000 + Math.floor(Math.random() * 1000), // Random port
@@ -419,9 +425,11 @@ const authProvider = browserAuth({
 Ensure you're using file storage, not in-memory:
 
 ```typescript
+import open from "open";
 import { fileStore } from "oauth-callback/mcp";
 
 const authProvider = browserAuth({
+  launch: open,
   store: fileStore(), // ✅ Persistent storage
   // store: inMemoryStore() // ❌ Lost on restart
 });
@@ -451,8 +459,11 @@ await authProvider.invalidateCredentials("client");
 1. **Use Ephemeral Storage for Sensitive Data**
 
    ```typescript
+   import open from "open";
+
    // Tokens are never written to disk
    const authProvider = browserAuth({
+     launch: open,
      store: inMemoryStore(),
    });
    ```
@@ -488,6 +499,7 @@ tokens.json
 For a production-ready implementation with full error handling:
 
 ```typescript
+import open from "open";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { browserAuth, fileStore } from "oauth-callback/mcp";
@@ -498,6 +510,7 @@ class NotionMCPClient {
 
   constructor() {
     this.authProvider = browserAuth({
+      launch: open,
       port: 3000,
       scope: "read write",
       store: fileStore("~/.mcp/notion.json"),

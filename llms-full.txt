@@ -535,9 +535,11 @@ await client.connect(transport);
 Store tokens across sessions:
 
 ```typescript
+import open from "open";
 import { browserAuth, fileStore } from "oauth-callback/mcp";
 
 const authProvider = browserAuth({
+  launch: open,
   store: fileStore(), // Persists to ~/.mcp/tokens.json
   scope: "read write",
 });
@@ -550,10 +552,13 @@ const authProvider = browserAuth({
 If you have pre-registered OAuth credentials:
 
 ```typescript
+import open from "open";
+
 const authProvider = browserAuth({
   clientId: process.env.OAUTH_CLIENT_ID,
   clientSecret: process.env.OAUTH_CLIENT_SECRET,
   scope: "read write admin",
+  launch: open,
   store: fileStore(),
 });
 ```
@@ -563,9 +568,11 @@ const authProvider = browserAuth({
 Store tokens in a specific location:
 
 ```typescript
+import open from "open";
 import { browserAuth, fileStore } from "oauth-callback/mcp";
 
 const authProvider = browserAuth({
+  launch: open,
   store: fileStore("/path/to/my-tokens.json"),
   storeKey: "my-app-production", // Namespace for multiple environments
 });
@@ -576,10 +583,13 @@ const authProvider = browserAuth({
 Configure the callback server:
 
 ```typescript
+import open from "open";
+
 const authProvider = browserAuth({
   port: 8080,
   hostname: "127.0.0.1",
   callbackPath: "/oauth/callback",
+  launch: open,
   store: fileStore(),
 });
 ```
@@ -596,7 +606,10 @@ Ensure your OAuth app's redirect URI matches your configuration:
 Provide branded callback pages:
 
 ```typescript
+import open from "open";
+
 const authProvider = browserAuth({
+  launch: open,
   successHtml: `
     <!DOCTYPE html>
     <html>
@@ -647,7 +660,10 @@ const authProvider = browserAuth({
 Monitor OAuth flow for debugging:
 
 ```typescript
+import open from "open";
+
 const authProvider = browserAuth({
+  launch: open,
   onRequest: (req) => {
     const url = new URL(req.url);
     console.log(`[OAuth] ${req.method} ${url.pathname}`);
@@ -702,9 +718,12 @@ sequenceDiagram
 No pre-registration needed:
 
 ```typescript
+import open from "open";
+
 // No clientId or clientSecret required!
 const authProvider = browserAuth({
   scope: "read write",
+  launch: open,
   store: fileStore(), // Persist dynamically registered client
 });
 
@@ -756,9 +775,11 @@ interface OAuthStore extends TokenStore {
 Ephemeral storage (tokens lost on restart):
 
 ```typescript
+import open from "open";
 import { browserAuth, inMemoryStore } from "oauth-callback/mcp";
 
 const authProvider = browserAuth({
+  launch: open,
   store: inMemoryStore(),
 });
 ```
@@ -774,15 +795,18 @@ const authProvider = browserAuth({
 Persistent storage to JSON file:
 
 ```typescript
+import open from "open";
 import { browserAuth, fileStore } from "oauth-callback/mcp";
 
 // Default location: ~/.mcp/tokens.json
 const authProvider = browserAuth({
+  launch: open,
   store: fileStore(),
 });
 
 // Custom location
 const customAuth = browserAuth({
+  launch: open,
   store: fileStore("/path/to/tokens.json"),
 });
 ```
@@ -827,6 +851,7 @@ class RedisStore implements TokenStore {
 
 // Use custom store
 const authProvider = browserAuth({
+  launch: open,
   store: new RedisStore(redisClient),
 });
 ```
@@ -848,8 +873,10 @@ PKCE prevents authorization code interception attacks by:
 The provider automatically generates secure state parameters:
 
 ```typescript
+import open from "open";
+
 // State is automatically generated and validated
-const authProvider = browserAuth();
+const authProvider = browserAuth({ launch: open });
 // No manual state handling needed!
 ```
 
@@ -869,8 +896,11 @@ Tokens are automatically managed with expiry tracking:
 File storage uses restrictive permissions:
 
 ```typescript
+import open from "open";
+
 // Files are created with mode 0600 (owner read/write only)
 const authProvider = browserAuth({
+  launch: open,
   store: fileStore(), // Secure file permissions
 });
 ```
@@ -911,7 +941,10 @@ The provider includes automatic retry for transient failures:
 Configure timeout for different scenarios:
 
 ```typescript
+import open from "open";
+
 const authProvider = browserAuth({
+  launch: open,
   authTimeout: 600000, // 10 minutes for first-time setup
 });
 ```
@@ -923,6 +956,7 @@ const authProvider = browserAuth({
 Full example with Dynamic Client Registration:
 
 ```typescript
+import open from "open";
 import { browserAuth, fileStore } from "oauth-callback/mcp";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
@@ -930,6 +964,7 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 async function connectToNotion() {
   // No client credentials needed - uses DCR!
   const authProvider = browserAuth({
+    launch: open, // Opens browser for OAuth consent
     store: fileStore(), // Persist tokens and client registration
     scope: "read write",
     onRequest: (req) => {
@@ -975,24 +1010,28 @@ connectToNotion();
 Support development, staging, and production:
 
 ```typescript
-import { browserAuth, fileStore } from "oauth-callback/mcp";
+import open from "open";
+import { browserAuth, fileStore, inMemoryStore } from "oauth-callback/mcp";
 
 function createAuthProvider(environment: "dev" | "staging" | "prod") {
   const configs = {
     dev: {
       port: 3000,
+      launch: open,
       store: inMemoryStore(), // No persistence in dev
       authTimeout: 60000,
-      onRequest: (req) => console.log("[DEV]", req.url),
+      onRequest: (req: Request) => console.log("[DEV]", req.url),
     },
     staging: {
       port: 3001,
+      launch: open,
       store: fileStore("~/.mcp/staging-tokens.json"),
       storeKey: "staging",
       authTimeout: 120000,
     },
     prod: {
       port: 3002,
+      launch: open,
       store: fileStore("~/.mcp/prod-tokens.json"),
       storeKey: "production",
       authTimeout: 300000,
@@ -1015,9 +1054,11 @@ const authProvider = createAuthProvider(
 While automatic refresh is pending full implementation, you can handle expired tokens:
 
 ```typescript
+import open from "open";
 import { browserAuth, fileStore } from "oauth-callback/mcp";
 
 const authProvider = browserAuth({
+  launch: open,
   store: fileStore(),
   scope: "offline_access", // Request refresh token
 });
@@ -1140,8 +1181,11 @@ describe("OAuth Flow Integration", () => {
 ::: details Port Already in Use
 
 ```typescript
+import open from "open";
+
 // Use a different port
 const authProvider = browserAuth({
+  launch: open,
   port: 8080, // Try alternative port
 });
 ```
@@ -1151,8 +1195,11 @@ const authProvider = browserAuth({
 ::: details Tokens Not Persisting
 
 ```typescript
+import open from "open";
+
 // Ensure you're using file store, not in-memory
 const authProvider = browserAuth({
+  launch: open,
   store: fileStore(), // ✅ Persistent
   // store: inMemoryStore() // ❌ Lost on restart
 });
@@ -1164,8 +1211,11 @@ const authProvider = browserAuth({
 Some servers may not support Dynamic Client Registration:
 
 ```typescript
+import open from "open";
+
 // Fallback to pre-registered credentials
 const authProvider = browserAuth({
+  launch: open,
   clientId: "your-client-id",
   clientSecret: "your-client-secret",
 });
@@ -2653,24 +2703,29 @@ Choose between ephemeral and persistent token storage:
 ::: code-group
 
 ```typescript [Ephemeral (Memory)]
+import open from "open";
 import { browserAuth, inMemoryStore } from "oauth-callback/mcp";
 
 // Tokens are lost when the process exits
 const authProvider = browserAuth({
+  launch: open,
   store: inMemoryStore(),
 });
 ```
 
 ```typescript [Persistent (File)]
+import open from "open";
 import { browserAuth, fileStore } from "oauth-callback/mcp";
 
 // Tokens persist across sessions
 const authProvider = browserAuth({
+  launch: open,
   store: fileStore(), // Saves to ~/.mcp/tokens.json
 });
 
 // Or specify custom location
 const customAuth = browserAuth({
+  launch: open,
   store: fileStore("/path/to/tokens.json"),
 });
 ```
@@ -2682,10 +2737,13 @@ const customAuth = browserAuth({
 If you have pre-registered OAuth credentials:
 
 ```typescript
+import open from "open";
+
 const authProvider = browserAuth({
   clientId: "your-client-id",
   clientSecret: "your-client-secret",
   scope: "read write",
+  launch: open,
   store: fileStore(),
   storeKey: "my-app", // Namespace for multiple apps
 });
@@ -2940,7 +2998,10 @@ On first run, your OS firewall may show a warning. Allow connections for:
 For MCP apps with token refresh issues:
 
 ```typescript
+import open from "open";
+
 const authProvider = browserAuth({
+  launch: open,
   store: fileStore(), // Use persistent storage
   authTimeout: 300000, // Increase timeout to 5 minutes
 });
@@ -4312,7 +4373,10 @@ const authProvider = browserAuth({
 Debug OAuth flow with detailed logging:
 
 ```typescript
+import open from "open";
+
 const authProvider = browserAuth({
+  launch: open,
   onRequest(req) {
     const url = new URL(req.url);
     const timestamp = new Date().toISOString();
@@ -4334,8 +4398,11 @@ const authProvider = browserAuth({
 Support multiple Notion accounts:
 
 ```typescript
+import open from "open";
+
 function createNotionAuth(accountName: string) {
   return browserAuth({
+    launch: open,
     store: fileStore(`~/.mcp/notion-${accountName}.json`),
     storeKey: `notion-${accountName}`,
     port: 3000 + Math.floor(Math.random() * 1000), // Random port
@@ -4384,9 +4451,11 @@ const authProvider = browserAuth({
 Ensure you're using file storage, not in-memory:
 
 ```typescript
+import open from "open";
 import { fileStore } from "oauth-callback/mcp";
 
 const authProvider = browserAuth({
+  launch: open,
   store: fileStore(), // ✅ Persistent storage
   // store: inMemoryStore() // ❌ Lost on restart
 });
@@ -4416,8 +4485,11 @@ await authProvider.invalidateCredentials("client");
 1. **Use Ephemeral Storage for Sensitive Data**
 
    ```typescript
+   import open from "open";
+
    // Tokens are never written to disk
    const authProvider = browserAuth({
+     launch: open,
      store: inMemoryStore(),
    });
    ```
@@ -4453,6 +4525,7 @@ tokens.json
 For a production-ready implementation with full error handling:
 
 ```typescript
+import open from "open";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { browserAuth, fileStore } from "oauth-callback/mcp";
@@ -4463,6 +4536,7 @@ class NotionMCPClient {
 
   constructor() {
     this.authProvider = browserAuth({
+      launch: open,
       port: 3000,
       scope: "read write",
       store: fileStore("~/.mcp/notion.json"),
@@ -5244,9 +5318,11 @@ function inMemoryStore(): TokenStore;
 #### Usage
 
 ```typescript
+import open from "open";
 import { browserAuth, inMemoryStore } from "oauth-callback/mcp";
 
 const authProvider = browserAuth({
+  launch: open,
   store: inMemoryStore(),
 });
 ```
@@ -5288,20 +5364,24 @@ function fileStore(filepath?: string): TokenStore;
 #### Usage
 
 ```typescript
+import open from "open";
 import { browserAuth, fileStore } from "oauth-callback/mcp";
 
 // Use default location (~/.mcp/tokens.json)
 const authProvider = browserAuth({
+  launch: open,
   store: fileStore(),
 });
 
 // Use custom location
 const customAuth = browserAuth({
+  launch: open,
   store: fileStore("/path/to/my-tokens.json"),
 });
 
 // Environment-specific storage
 const envAuth = browserAuth({
+  launch: open,
   store: fileStore(`~/.myapp/${process.env.NODE_ENV}-tokens.json`),
 });
 ```
@@ -5346,7 +5426,10 @@ Storage keys namespace tokens for different applications or environments:
 ### Single Application
 
 ```typescript
+import open from "open";
+
 const authProvider = browserAuth({
+  launch: open,
   store: fileStore(),
   storeKey: "my-app", // Default: "mcp-tokens"
 });
@@ -5355,14 +5438,18 @@ const authProvider = browserAuth({
 ### Multiple Applications
 
 ```typescript
+import open from "open";
+
 // App 1
 const app1Auth = browserAuth({
+  launch: open,
   store: fileStore(),
   storeKey: "app1-tokens",
 });
 
 // App 2 (same file, different key)
 const app2Auth = browserAuth({
+  launch: open,
   store: fileStore(),
   storeKey: "app2-tokens",
 });
@@ -5371,7 +5458,10 @@ const app2Auth = browserAuth({
 ### Environment Separation
 
 ```typescript
+import open from "open";
+
 const authProvider = browserAuth({
+  launch: open,
   store: fileStore(),
   storeKey: `${process.env.APP_NAME}-${process.env.NODE_ENV}`,
 });
@@ -5429,8 +5519,10 @@ class RedisTokenStore implements TokenStore {
 }
 
 // Usage
+import open from "open";
 const redis = new Redis();
 const authProvider = browserAuth({
+  launch: open,
   store: new RedisTokenStore(redis),
 });
 ```
@@ -5503,7 +5595,9 @@ class SQLiteTokenStore implements TokenStore {
 }
 
 // Usage
+import open from "open";
 const authProvider = browserAuth({
+  launch: open,
   store: new SQLiteTokenStore("./oauth-tokens.db"),
 });
 ```
@@ -5607,11 +5701,13 @@ class MongoOAuthStore implements OAuthStore {
 }
 
 // Usage
+import open from "open";
 const client = new MongoClient("mongodb://localhost:27017");
 await client.connect();
 const db = client.db("oauth");
 
 const authProvider = browserAuth({
+  launch: open,
   store: new MongoOAuthStore(db),
 });
 ```
@@ -5701,6 +5797,7 @@ class EncryptedTokenStore implements TokenStore {
 }
 
 // Usage
+import open from "open";
 const encryptedStore = new EncryptedTokenStore(
   fileStore(),
   process.env.ENCRYPTION_PASSWORD!,
@@ -5708,6 +5805,7 @@ const encryptedStore = new EncryptedTokenStore(
 await encryptedStore.init(process.env.ENCRYPTION_PASSWORD!);
 
 const authProvider = browserAuth({
+  launch: open,
   store: encryptedStore,
 });
 ```
@@ -5769,7 +5867,9 @@ class TenantAwareStore implements TokenStore {
 }
 
 // Usage
+import open from "open";
 const authProvider = browserAuth({
+  launch: open,
   store: new TenantAwareStore(),
   storeKey: `${tenantId}:${appName}`,
 });
@@ -5830,7 +5930,9 @@ class CachedTokenStore implements TokenStore {
 }
 
 // Usage
+import open from "open";
 const authProvider = browserAuth({
+  launch: open,
   store: new CachedTokenStore(fileStore(), 600), // 10 min cache
 });
 ```
@@ -5891,6 +5993,7 @@ describe("OAuth Flow", () => {
 
   it("should use stored tokens", async () => {
     const authProvider = browserAuth({
+      launch: () => {}, // Noop for tests
       store: mockStore,
       storeKey: "test-key",
     });
@@ -6026,7 +6129,9 @@ class ResilientTokenStore implements TokenStore {
 }
 
 // Usage: Redis with file fallback
+import open from "open";
 const authProvider = browserAuth({
+  launch: open,
   store: new ResilientTokenStore(new RedisTokenStore(redis), fileStore()),
 });
 ```
