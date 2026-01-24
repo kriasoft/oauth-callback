@@ -22,6 +22,29 @@ export { fileStore } from "./storage/file";
 import * as mcp from "./mcp";
 export { mcp };
 
+/**
+ * Builds the redirect URI for OAuth configuration.
+ * Use this to construct the redirect_uri parameter for your authorization URL.
+ *
+ * @example
+ * ```typescript
+ * const redirectUri = getRedirectUrl({ port: 3000 });
+ * // => "http://localhost:3000/callback"
+ *
+ * const authUrl = `https://oauth.example.com/authorize?redirect_uri=${encodeURIComponent(redirectUri)}`;
+ * console.log('Open:', authUrl);
+ * await getAuthCode({ port: 3000 });
+ * ```
+ */
+export function getRedirectUrl(options: {
+  port?: number;
+  hostname?: string;
+  callbackPath?: string;
+} = {}): string {
+  const { port = 3000, hostname = "localhost", callbackPath = "/callback" } = options;
+  return `http://${hostname}:${port}${callbackPath}`;
+}
+
 async function authorizationUrlToOptions(
   input: string,
 ): Promise<GetAuthCodeOptions> {
@@ -33,7 +56,11 @@ async function authorizationUrlToOptions(
  * Captures OAuth authorization code via localhost callback.
  * Starts a temporary server, optionally launches auth URL, waits for redirect.
  *
- * @param input - Auth URL string or GetAuthCodeOptions with config
+ * Two modes:
+ * - **Managed**: Pass both `authorizationUrl` and `launch` — library opens browser
+ * - **Headless**: Pass neither — caller handles URL display (CI/SSH/custom UI)
+ *
+ * @param input - Auth URL string (auto-launches browser) or GetAuthCodeOptions
  * @returns Promise<CallbackResult> with code and params
  * @throws {OAuthError} Provider errors (access_denied, invalid_scope)
  * @throws {Error} Timeout, network failures, port conflicts
@@ -42,16 +69,16 @@ async function authorizationUrlToOptions(
  * ```typescript
  * import open from "open";
  *
- * // With browser launch
+ * // Managed mode: library launches browser
  * const result = await getAuthCode({
  *   authorizationUrl: 'https://oauth.example.com/authorize?...',
  *   launch: open,
  * });
  *
- * // Headless (print URL, let user open manually)
- * const url = 'https://oauth.example.com/authorize?...';
- * console.log('Open:', url);
- * const result = await getAuthCode({ authorizationUrl: url });
+ * // Headless mode: caller handles URL display
+ * const authUrl = 'https://oauth.example.com/authorize?...';
+ * console.log('Open this URL:', authUrl);
+ * const result = await getAuthCode({ port: 3000, timeout: 60000 });
  * ```
  */
 export async function getAuthCode(
@@ -83,11 +110,13 @@ export async function getAuthCode(
       onRequest,
     });
 
-    // Best-effort launch: fire-and-forget, swallow errors
-    if ("launch" in options && "authorizationUrl" in options) {
-      void Promise.resolve(options.launch(options.authorizationUrl)).catch(
-        () => {},
-      );
+    // Best-effort launch: fire-and-forget, swallow errors (managed mode only)
+    if (
+      "authorizationUrl" in options &&
+      typeof (options as any).launch === "function"
+    ) {
+      const { authorizationUrl, launch } = options as any;
+      void Promise.resolve(launch(authorizationUrl)).catch(() => {});
     }
 
     const result = await server.waitForCallback(callbackPath, timeout);

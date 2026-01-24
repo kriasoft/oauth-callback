@@ -60,7 +60,20 @@ interface GetAuthCodeOptionsBase {
   onRequest?: (req: Request) => void;
 }
 
-interface GetAuthCodeOptionsLaunch extends GetAuthCodeOptionsBase {
+/**
+ * Headless mode: caller handles URL display, library just runs callback server.
+ * Use when you want to print the URL yourself or in CI/SSH environments.
+ */
+type GetAuthCodeOptionsHeadless = GetAuthCodeOptionsBase & {
+  authorizationUrl?: never;
+  launch?: never;
+};
+
+/**
+ * Managed mode: library launches the authorization URL automatically.
+ * Both authorizationUrl and launch are required together.
+ */
+type GetAuthCodeOptionsManaged = GetAuthCodeOptionsBase & {
   /**
    * OAuth authorization URL that the user will be redirected to.
    * Should include all necessary query parameters like client_id, redirect_uri, etc.
@@ -70,7 +83,6 @@ interface GetAuthCodeOptionsLaunch extends GetAuthCodeOptionsBase {
   /**
    * Callback to launch the authorization URL.
    * Called after the callback server starts, best-effort (errors are swallowed).
-   * If omitted, the library does nothing — caller is responsible for opening the URL.
    *
    * Returns `unknown` (not `void`) to accept any launcher without casting—e.g.,
    * the `open` package returns `Promise<ChildProcess>`. Return value is ignored.
@@ -82,8 +94,8 @@ interface GetAuthCodeOptionsLaunch extends GetAuthCodeOptionsBase {
    * ```
    */
   launch: (url: string) => unknown;
-}
+};
 
 export type GetAuthCodeOptions =
-  | GetAuthCodeOptionsBase
-  | GetAuthCodeOptionsLaunch;
+  | GetAuthCodeOptionsHeadless
+  | GetAuthCodeOptionsManaged;
