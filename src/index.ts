@@ -10,6 +10,10 @@ import { OAuthError } from "./errors";
 import { createCallbackServer, type CallbackResult } from "./server";
 import type { GetAuthCodeOptions } from "./types";
 
+const DEFAULT_PORT = 3000;
+const DEFAULT_HOSTNAME = "localhost";
+const DEFAULT_CALLBACK_PATH = "/callback";
+
 export type { CallbackResult, CallbackServer, ServerOptions } from "./server";
 export { OAuthError, TimeoutError } from "./errors";
 export type { GetAuthCodeOptions } from "./types";
@@ -44,9 +48,9 @@ export function getRedirectUrl(
   } = {},
 ): string {
   const {
-    port = 3000,
-    hostname = "localhost",
-    callbackPath = "/callback",
+    port = DEFAULT_PORT,
+    hostname = DEFAULT_HOSTNAME,
+    callbackPath = DEFAULT_CALLBACK_PATH,
   } = options;
   return `http://${hostname}:${port}${callbackPath}`;
 }
@@ -94,10 +98,10 @@ export async function getAuthCode(
     typeof input === "string" ? await authorizationUrlToOptions(input) : input;
 
   const {
-    port = 3000,
-    hostname = "localhost",
+    port = DEFAULT_PORT,
+    hostname = DEFAULT_HOSTNAME,
     timeout = 30000,
-    callbackPath = "/callback",
+    callbackPath = DEFAULT_CALLBACK_PATH,
     successHtml,
     errorHtml,
     signal,
@@ -119,10 +123,13 @@ export async function getAuthCode(
     // Best-effort launch: fire-and-forget, swallow errors (managed mode only)
     if (
       "authorizationUrl" in options &&
-      typeof (options as any).launch === "function"
+      options.authorizationUrl &&
+      "launch" in options &&
+      typeof options.launch === "function"
     ) {
-      const { authorizationUrl, launch } = options as any;
-      void Promise.resolve(launch(authorizationUrl)).catch(() => {});
+      void Promise.resolve(options.launch(options.authorizationUrl)).catch(
+        () => {},
+      );
     }
 
     const result = await server.waitForCallback(callbackPath, timeout);
