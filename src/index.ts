@@ -36,12 +36,18 @@ export { mcp };
  * await getAuthCode({ port: 3000 });
  * ```
  */
-export function getRedirectUrl(options: {
-  port?: number;
-  hostname?: string;
-  callbackPath?: string;
-} = {}): string {
-  const { port = 3000, hostname = "localhost", callbackPath = "/callback" } = options;
+export function getRedirectUrl(
+  options: {
+    port?: number;
+    hostname?: string;
+    callbackPath?: string;
+  } = {},
+): string {
+  const {
+    port = 3000,
+    hostname = "localhost",
+    callbackPath = "/callback",
+  } = options;
   return `http://${hostname}:${port}${callbackPath}`;
 }
 

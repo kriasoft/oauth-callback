@@ -273,7 +273,11 @@ class BrowserOAuthProvider implements OAuthClientProvider {
 
     const result = await getAuthCode(
       this._launch
-        ? { ...baseOptions, authorizationUrl: authorizationUrl.href, launch: this._launch }
+        ? {
+            ...baseOptions,
+            authorizationUrl: authorizationUrl.href,
+            launch: this._launch,
+          }
         : baseOptions,
     );
 
