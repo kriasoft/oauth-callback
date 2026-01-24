@@ -42,3 +42,6 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 # VitePress
 docs/.vitepress/dist
 docs/.vitepress/cache
+
+# Srcpack output
+.srcpack/
