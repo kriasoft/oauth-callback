@@ -6,13 +6,12 @@
  * Creates a temporary localhost server to capture OAuth callbacks for CLI/desktop apps.
  */
 
-import open from "open";
 import { OAuthError } from "./errors";
 import { createCallbackServer, type CallbackResult } from "./server";
 import type { GetAuthCodeOptions } from "./types";
 
 export type { CallbackResult, CallbackServer, ServerOptions } from "./server";
-export { OAuthError } from "./errors";
+export { OAuthError, TimeoutError } from "./errors";
 export type { GetAuthCodeOptions } from "./types";
 
 // Storage implementations (backward compatibility)
@@ -25,7 +24,7 @@ export { mcp };
 
 /**
  * Captures OAuth authorization code via localhost callback.
- * Opens browser to auth URL, waits for provider redirect to localhost.
+ * Starts a temporary server, optionally launches auth URL, waits for redirect.
  *
  * @param input - Auth URL string or GetAuthCodeOptions with config
  * @returns Promise<CallbackResult> with code and params
@@ -34,17 +33,18 @@ export { mcp };
  *
  * @example
  * ```typescript
- * // Simple
- * const result = await getAuthCode('https://oauth.example.com/authorize?...');
- * console.log('Code:', result.code);
+ * import open from "open";
  *
- * // Custom port/timeout
+ * // With browser launch
  * const result = await getAuthCode({
  *   authorizationUrl: 'https://oauth.example.com/authorize?...',
- *   port: 8080,
- *   timeout: 60000,
- *   onRequest: (req) => console.log('Request:', req.url)
+ *   launch: open,
  * });
+ *
+ * // Headless (print URL, let user open manually)
+ * const url = 'https://oauth.example.com/authorize?...';
+ * console.log('Open:', url);
+ * const result = await getAuthCode({ authorizationUrl: url });
  * ```
  */
 export async function getAuthCode(
@@ -57,13 +57,13 @@ export async function getAuthCode(
     authorizationUrl,
     port = 3000,
     hostname = "localhost",
-    openBrowser = true,
     timeout = 30000,
     callbackPath = "/callback",
     successHtml,
     errorHtml,
     signal,
     onRequest,
+    launch,
   } = options;
 
   const server = createCallbackServer();
@@ -78,23 +78,8 @@ export async function getAuthCode(
       onRequest,
     });
 
-    if (openBrowser === true) {
-      await open(authorizationUrl);
-    } else if (openBrowser === false) {
-      // Test mode: trigger mock provider redirect without browser
-      fetch(authorizationUrl)
-        .then(async (response) => {
-          if (response.status === 302 || response.status === 301) {
-            const location = response.headers.get("Location");
-            if (location) {
-              await fetch(location);
-            }
-          }
-        })
-        .catch(() => {
-          // Ignore - tests may lack mock provider
-        });
-    }
+    // Best-effort launch: fire-and-forget, swallow errors
+    if (launch) void Promise.resolve(launch(authorizationUrl)).catch(() => {});
 
     const result = await server.waitForCallback(callbackPath, timeout);
 

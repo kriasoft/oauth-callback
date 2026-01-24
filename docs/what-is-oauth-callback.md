@@ -161,7 +161,7 @@ The MCP integration handles:
 
 - **Dynamic Client Registration** when supported by the server
 - **Token persistence** with `fileStore()` or ephemeral `inMemoryStore()`
-- **Automatic token refresh** when tokens expire
+- **Automatic re-authentication** when tokens expire
 - **Multiple app namespace support** via `storeKey` option
   :::
 

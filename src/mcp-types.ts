@@ -73,13 +73,13 @@ export interface BrowserAuthOptions {
   callbackPath?: string; // Default: "/callback"
 
   store?: TokenStore; // Default: in-memory (lost on restart). Use OAuthStore for persistence.
-  storeKey?: string; // Storage key prefix. Default: "mcp-tokens"
+  storeKey?: string; // Storage key for token isolation. Default: "mcp-tokens"
 
-  openBrowser?: boolean | string; // Default: true. Set false for headless/CI environments.
+  /** Callback to launch the authorization URL. Omit for headless mode.
+   * Returns `unknown` to accept any launcher (e.g., `open` → `Promise<ChildProcess>`). */
+  launch?: (url: string) => unknown;
 
   authTimeout?: number; // Max wait for user authorization. Default: 300000ms (5 min)
-
-  usePKCE?: boolean; // Enable PKCE (RFC 7636). Default: true. Required for public clients.
 
   /** Custom HTML templates for callback pages. Supports {{placeholders}}. */
   successHtml?: string;

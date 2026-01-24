@@ -79,6 +79,7 @@ Here's the full implementation demonstrating Notion MCP integration:
 
 ```typescript
 #!/usr/bin/env bun
+import open from "open";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { browserAuth, inMemoryStore } from "oauth-callback/mcp";
@@ -90,6 +91,7 @@ async function connectToNotion() {
 
   // Create OAuth provider - no client_id or client_secret needed!
   const authProvider = browserAuth({
+    launch: open,
     port: 3000,
     scope: "read write",
     store: inMemoryStore(), // Use fileStore() for persistence
@@ -191,7 +193,10 @@ Unlike traditional OAuth, Notion's MCP server supports Dynamic Client Registrati
 The `browserAuth()` provider handles the complete OAuth flow:
 
 ```typescript
+import open from "open";
+
 const authProvider = browserAuth({
+  launch: open, // Opens browser for authorization
   port: 3000, // Callback server port
   scope: "read write", // Requested permissions
   store: inMemoryStore(), // Token storage
@@ -211,6 +216,7 @@ Choose between ephemeral and persistent storage:
 ```typescript [Ephemeral Storage]
 // Tokens lost on restart (more secure)
 const authProvider = browserAuth({
+  launch: open,
   store: inMemoryStore(),
 });
 ```
@@ -220,6 +226,7 @@ const authProvider = browserAuth({
 import { fileStore } from "oauth-callback/mcp";
 
 const authProvider = browserAuth({
+  launch: open,
   store: fileStore(), // Default: ~/.mcp/tokens.json
 });
 ```
@@ -227,6 +234,7 @@ const authProvider = browserAuth({
 ```typescript [Custom Location]
 // Specify custom file path
 const authProvider = browserAuth({
+  launch: open,
   store: fileStore("~/my-app/notion-tokens.json"),
 });
 ```
@@ -378,11 +386,11 @@ const workAuth = createNotionAuth("work");
 
 ::: details Browser doesn't open automatically
 
-If the browser doesn't open automatically:
+If you're in a headless environment:
 
 ```typescript
 const authProvider = browserAuth({
-  openBrowser: false, // Disable auto-open
+  launch: () => {}, // Noop - disable browser opening
 });
 
 // Manually instruct user

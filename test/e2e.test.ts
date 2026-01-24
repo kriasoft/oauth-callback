@@ -2,10 +2,24 @@
 /* SPDX-License-Identifier: MIT */
 
 import { test, expect, beforeAll, afterAll } from "bun:test";
-import { getAuthCode } from "../src/index";
+import { getAuthCode, TimeoutError } from "../src/index";
 import type { Server } from "bun";
 
 let mockOAuthProvider: Server;
+
+/**
+ * Test launcher that simulates OAuth provider redirect.
+ * Fetches the auth URL and follows the redirect to trigger the callback.
+ */
+async function simulateOAuthRedirect(url: string): Promise<void> {
+  const response = await fetch(url);
+  if (response.status === 302 || response.status === 301) {
+    const location = response.headers.get("Location");
+    if (location) {
+      await fetch(location);
+    }
+  }
+}
 
 beforeAll(() => {
   // Setup mock OAuth provider server
@@ -87,15 +101,10 @@ test("complete OAuth authorization flow with mock provider", async () => {
       state: "random_state_123",
     });
 
-  // Call getAuthCode which will:
-  // 1. Start local server on port 3000
-  // 2. Open browser to authUrl (we'll disable this in test)
-  // 3. Mock provider redirects to callback
-  // 4. getAuthCode captures the code and returns
   const result = await getAuthCode({
     authorizationUrl: authUrl,
     port: 3000,
-    openBrowser: false, // Don't open browser in tests
+    launch: simulateOAuthRedirect,
   });
 
   // Verify the authorization code was captured
@@ -113,13 +122,12 @@ test("OAuth error handling - access denied", async () => {
       state: "state_456",
     });
 
-  // Test with throwOnError = true (default)
   let errorThrown = false;
   try {
     await getAuthCode({
       authorizationUrl: authUrl,
       port: 3001,
-      openBrowser: false,
+      launch: simulateOAuthRedirect,
     });
   } catch (error: any) {
     errorThrown = true;
@@ -140,13 +148,12 @@ test("OAuth error always throws OAuthError", async () => {
       response_type: "code",
     });
 
-  // Errors should always throw since throwOnError was removed
   let errorThrown = false;
   try {
     await getAuthCode({
       authorizationUrl: authUrl,
       port: 3002,
-      openBrowser: false,
+      launch: simulateOAuthRedirect,
     });
   } catch (error: any) {
     errorThrown = true;
@@ -167,18 +174,17 @@ test("successful authorization with string input", async () => {
       response_type: "code",
     });
 
-  // Test with simple string input, but disable browser opening for tests
   const result = await getAuthCode({
     authorizationUrl: authUrl,
     port: 3003,
-    openBrowser: false,
+    launch: simulateOAuthRedirect,
   });
 
   expect(result.code).toBe("test_auth_code_123");
   expect(result.state).toBeUndefined(); // No state provided
 });
 
-test("timeout handling with proper error message", async () => {
+test("timeout throws TimeoutError", async () => {
   // Use a URL that doesn't exist to ensure no callback is made
   const authUrl = "http://localhost:9999/nonexistent";
 
@@ -187,14 +193,12 @@ test("timeout handling with proper error message", async () => {
     await getAuthCode({
       authorizationUrl: authUrl,
       port: 3004,
-      timeout: 100, // Very short timeout
-      openBrowser: false,
+      timeout: 100,
     });
   } catch (error: any) {
     errorThrown = true;
-    expect(error.message).toContain(
-      "OAuth callback timeout after 100ms waiting for /callback",
-    );
+    expect(error).toBeInstanceOf(TimeoutError);
+    expect(error.name).toBe("TimeoutError");
   }
 
   expect(errorThrown).toBe(true);
@@ -214,7 +218,6 @@ test("abort signal handling", async () => {
       authorizationUrl: authUrl,
       port: 3005,
       signal: controller.signal,
-      openBrowser: false,
     });
   } catch (error: any) {
     errorThrown = true;
@@ -241,7 +244,7 @@ test("custom HTML templates", async () => {
     authorizationUrl: authUrl,
     port: 3006,
     successHtml: "<h1>Custom Success!</h1>",
-    openBrowser: false,
+    launch: simulateOAuthRedirect,
   });
 
   expect(result.code).toBe("test_auth_code_123");
@@ -262,11 +265,11 @@ test("onRequest callback is called", async () => {
   const result = await getAuthCode({
     authorizationUrl: authUrl,
     port: 3007,
+    launch: simulateOAuthRedirect,
     onRequest: (req) => {
       requestReceived = true;
       requestUrl = req.url;
     },
-    openBrowser: false,
   });
 
   expect(result.code).toBe("test_auth_code_123");
@@ -288,7 +291,6 @@ test("server cleanup on early stop", async () => {
       authorizationUrl: authUrl,
       port: 3008,
       signal: controller.signal,
-      openBrowser: false,
     });
   } catch (error: any) {
     errorThrown = true;
