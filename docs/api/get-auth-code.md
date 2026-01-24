@@ -24,18 +24,18 @@ The function accepts either:
 
 ### GetAuthCodeOptions
 
-| Property           | Type                     | Default       | Description                                   |
-| ------------------ | ------------------------ | ------------- | --------------------------------------------- |
-| `authorizationUrl` | `string`                 | _required_    | OAuth authorization URL with query parameters |
-| `port`             | `number`                 | `3000`        | Port for the local callback server            |
-| `hostname`         | `string`                 | `"localhost"` | Hostname to bind the server to                |
-| `callbackPath`     | `string`                 | `"/callback"` | URL path for OAuth callback                   |
-| `timeout`          | `number`                 | `30000`       | Timeout in milliseconds                       |
-| `openBrowser`      | `boolean`                | `true`        | Auto-open browser to auth URL                 |
-| `successHtml`      | `string`                 | _built-in_    | Custom HTML for successful auth               |
-| `errorHtml`        | `string`                 | _built-in_    | Custom HTML template for errors               |
-| `signal`           | `AbortSignal`            | _none_        | For programmatic cancellation                 |
-| `onRequest`        | `(req: Request) => void` | _none_        | Callback for request logging                  |
+| Property           | Type                       | Default       | Description                                   |
+| ------------------ | -------------------------- | ------------- | --------------------------------------------- |
+| `authorizationUrl` | `string`                   | _required_    | OAuth authorization URL with query parameters |
+| `port`             | `number`                   | `3000`        | Port for the local callback server            |
+| `hostname`         | `string`                   | `"localhost"` | Hostname to bind the server to                |
+| `callbackPath`     | `string`                   | `"/callback"` | URL path for OAuth callback                   |
+| `timeout`          | `number`                   | `30000`       | Timeout in milliseconds                       |
+| `launch`           | `(url: string) => unknown` | _none_        | Optional callback to launch auth URL          |
+| `successHtml`      | `string`                   | _built-in_    | Custom HTML for successful auth               |
+| `errorHtml`        | `string`                   | _built-in_    | Custom HTML template for errors               |
+| `signal`           | `AbortSignal`              | _none_        | For programmatic cancellation                 |
+| `onRequest`        | `(req: Request) => void`   | _none_        | Callback for request logging                  |
 
 ## Return Value
 
@@ -62,11 +62,12 @@ The function can throw:
 
 ## Basic Usage
 
-### Simple Authorization
+### With Browser Launch
 
-The simplest usage with just an authorization URL:
+The recommended usage with automatic browser opening:
 
 ```typescript
+import open from "open";
 import { getAuthCode } from "oauth-callback";
 
 const authUrl =
@@ -78,7 +79,7 @@ const authUrl =
     state: "random_state",
   });
 
-const result = await getAuthCode(authUrl);
+const result = await getAuthCode({ authorizationUrl: authUrl, launch: open });
 console.log("Authorization code:", result.code);
 console.log("State:", result.state);
 ```
@@ -245,19 +246,27 @@ try {
 }
 ```
 
-### Manual Browser Control
+### Headless / Manual Browser Control
 
-For environments where automatic browser opening doesn't work:
+For environments where you want to handle browser opening yourself:
 
 ```typescript
-const result = await getAuthCode({
-  authorizationUrl: authUrl,
-  openBrowser: false, // Don't auto-open
-});
-
-// Manually instruct user
+// Headless mode - print URL, let user open manually
 console.log("Please open this URL in your browser:");
 console.log(authUrl);
+
+const result = await getAuthCode({ authorizationUrl: authUrl });
+```
+
+Or use a custom launcher:
+
+```typescript
+import open from "open";
+
+const result = await getAuthCode({
+  authorizationUrl: authUrl,
+  launch: open, // Pass any function that accepts URL
+});
 ```
 
 ## Error Handling
@@ -267,10 +276,11 @@ console.log(authUrl);
 Handle all possible error scenarios:
 
 ```typescript
+import open from "open";
 import { getAuthCode, OAuthError } from "oauth-callback";
 
 try {
-  const result = await getAuthCode(authUrl);
+  const result = await getAuthCode({ authorizationUrl: authUrl, launch: open });
   // Success - exchange code for token
   return result.code;
 } catch (error) {
@@ -564,7 +574,7 @@ describe("OAuth Flow", () => {
     const result = await getAuthCode({
       authorizationUrl: `http://localhost:${mockServer.port}/authorize`,
       port: 3001,
-      openBrowser: false, // Don't open real browser in tests
+      // No launch callback - tests simulate OAuth redirect
       timeout: 5000,
     });
 
@@ -583,7 +593,7 @@ describe("OAuth Flow", () => {
     await expect(
       getAuthCode({
         authorizationUrl: `http://localhost:${mockServer.port}/authorize`,
-        openBrowser: false,
+        // No launch - test simulates OAuth redirect
       }),
     ).rejects.toThrow(OAuthError);
 

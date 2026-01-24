@@ -17,22 +17,21 @@ function browserAuth(options?: BrowserAuthOptions): OAuthClientProvider;
 
 ### BrowserAuthOptions
 
-| Property       | Type                     | Default           | Description                        |
-| -------------- | ------------------------ | ----------------- | ---------------------------------- |
-| `clientId`     | `string`                 | _none_            | Pre-registered OAuth client ID     |
-| `clientSecret` | `string`                 | _none_            | Pre-registered OAuth client secret |
-| `scope`        | `string`                 | _none_            | OAuth scopes to request            |
-| `port`         | `number`                 | `3000`            | Port for local callback server     |
-| `hostname`     | `string`                 | `"localhost"`     | Hostname to bind server to         |
-| `callbackPath` | `string`                 | `"/callback"`     | URL path for OAuth callback        |
-| `store`        | `TokenStore`             | `inMemoryStore()` | Token storage implementation       |
-| `storeKey`     | `string`                 | `"mcp-tokens"`    | Storage key prefix                 |
-| `openBrowser`  | `boolean \| string`      | `true`            | Auto-open browser                  |
-| `authTimeout`  | `number`                 | `300000`          | Auth timeout in ms (5 min)         |
-| `usePKCE`      | `boolean`                | `true`            | Enable PKCE for security           |
-| `successHtml`  | `string`                 | _built-in_        | Custom success page HTML           |
-| `errorHtml`    | `string`                 | _built-in_        | Custom error page HTML             |
-| `onRequest`    | `(req: Request) => void` | _none_            | Request logging callback           |
+| Property       | Type                       | Default           | Description                        |
+| -------------- | -------------------------- | ----------------- | ---------------------------------- |
+| `clientId`     | `string`                   | _none_            | Pre-registered OAuth client ID     |
+| `clientSecret` | `string`                   | _none_            | Pre-registered OAuth client secret |
+| `scope`        | `string`                   | _none_            | OAuth scopes to request            |
+| `port`         | `number`                   | `3000`            | Port for local callback server     |
+| `hostname`     | `string`                   | `"localhost"`     | Hostname to bind server to         |
+| `callbackPath` | `string`                   | `"/callback"`     | URL path for OAuth callback        |
+| `store`        | `TokenStore`               | `inMemoryStore()` | Token storage implementation       |
+| `storeKey`     | `string`                   | `"mcp-tokens"`    | Storage key for token isolation    |
+| `launch`       | `(url: string) => unknown` | _none_            | Callback to launch auth URL        |
+| `authTimeout`  | `number`                   | `300000`          | Auth timeout in ms (5 min)         |
+| `successHtml`  | `string`                   | _built-in_        | Custom success page HTML           |
+| `errorHtml`    | `string`                   | _built-in_        | Custom error page HTML             |
+| `onRequest`    | `(req: Request) => void`   | _none_            | Request logging callback           |
 
 ## Return Value
 
@@ -70,12 +69,13 @@ interface OAuthClientProvider {
 The simplest usage with default settings:
 
 ```typescript
+import open from "open";
 import { browserAuth } from "oauth-callback/mcp";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 
-// Create OAuth provider with defaults
-const authProvider = browserAuth();
+// Create OAuth provider - pass open to launch browser
+const authProvider = browserAuth({ launch: open });
 
 // Use with MCP transport
 const transport = new StreamableHTTPClientTransport(
@@ -223,11 +223,11 @@ const authProvider = browserAuth({
 
 ### Headless/CI Environment
 
-Disable browser auto-opening for automated environments:
+Disable browser opening for automated environments:
 
 ```typescript
 const authProvider = browserAuth({
-  openBrowser: false,
+  launch: () => {}, // Noop - no browser opening
   authTimeout: 10000, // Shorter timeout for CI
   store: inMemoryStore(),
 });
@@ -396,13 +396,7 @@ const authProvider = browserAuth({
 
 ### PKCE (Proof Key for Code Exchange)
 
-PKCE is enabled by default for enhanced security:
-
-```typescript
-const authProvider = browserAuth({
-  usePKCE: true, // Default: true
-});
-```
+PKCE is always enabled for enhanced security. The MCP SDK handles PKCE automatically through the provider's `saveCodeVerifier()` and `codeVerifier()` methods.
 
 PKCE prevents authorization code interception attacks by:
 
@@ -685,7 +679,7 @@ describe("OAuth Flow Integration", () => {
   it("should complete full OAuth flow", async () => {
     const authProvider = browserAuth({
       port: 3001,
-      openBrowser: false, // Don't open browser in tests
+      launch: () => {}, // Noop - don't open browser in tests
       store: inMemoryStore(),
     });
 
@@ -743,9 +737,11 @@ const authProvider = browserAuth({
 ::: details Browser Not Opening
 
 ```typescript
-// Check if running in headless environment
+import open from "open";
+
+// Conditionally open browser based on environment
 const authProvider = browserAuth({
-  openBrowser: process.env.CI !== "true",
+  launch: process.env.CI ? () => {} : open,
 });
 ```
 
@@ -781,6 +777,7 @@ const tokens = await exchangeCodeForTokens(code);
 
 // After: Using browserAuth
 const authProvider = browserAuth({
+  launch: open,
   store: fileStore(),
 });
 // Automatic handling of entire OAuth flow!
@@ -790,10 +787,11 @@ const authProvider = browserAuth({
 
 ```typescript
 // Before: Tokens lost on restart
-const authProvider = browserAuth();
+const authProvider = browserAuth({ launch: open });
 
 // After: Tokens persist across sessions
 const authProvider = browserAuth({
+  launch: open,
   store: fileStore(),
 });
 ```

@@ -14,6 +14,7 @@
  *   bun run example.ts
  */
 
+import open from "open";
 import { getAuthCode, OAuthError } from "../src/index";
 
 // Check for required environment variables
@@ -51,7 +52,8 @@ async function main() {
     const result = await getAuthCode({
       authorizationUrl: authUrl.toString(),
       port: 3000,
-      timeout: 60000, // 1 minute timeout
+      timeout: 60000,
+      launch: open,
       onRequest: (req) => {
         const url = new URL(req.url);
         console.log(`📨 Received ${req.method} request to ${url.pathname}`);

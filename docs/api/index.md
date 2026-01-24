@@ -39,12 +39,14 @@ OAuth Callback supports multiple import patterns to suit different use cases:
 ### Main Package Import
 
 ```typescript
+import open from "open";
+
 // Core functionality
 import { getAuthCode, OAuthError } from "oauth-callback";
 
 // Namespace import for MCP features
 import { mcp } from "oauth-callback";
-const authProvider = mcp.browserAuth({ store: mcp.fileStore() });
+const authProvider = mcp.browserAuth({ launch: open, store: mcp.fileStore() });
 ```
 
 ### MCP-Specific Import
@@ -88,7 +90,7 @@ function browserAuth(options?: BrowserAuthOptions): OAuthClientProvider;
 **Key Features:**
 
 - Dynamic Client Registration (RFC 7591)
-- Automatic token refresh
+- Automatic token expiry handling
 - PKCE support (RFC 7636)
 - Flexible token storage
 - MCP SDK integration
@@ -129,6 +131,7 @@ Ephemeral storage that keeps tokens in memory:
 
 ```typescript
 const authProvider = browserAuth({
+  launch: open,
   store: inMemoryStore(), // Tokens lost on restart
 });
 ```
@@ -139,6 +142,7 @@ Persistent storage that saves tokens to a JSON file:
 
 ```typescript
 const authProvider = browserAuth({
+  launch: open,
   store: fileStore(), // Default: ~/.mcp/tokens.json
 });
 ```
@@ -179,7 +183,7 @@ interface GetAuthCodeOptions {
   hostname?: string;
   callbackPath?: string;
   timeout?: number;
-  openBrowser?: boolean;
+  launch?: (url: string) => unknown;
   successHtml?: string;
   errorHtml?: string;
   signal?: AbortSignal;
@@ -229,10 +233,12 @@ console.log("Code:", result.code);
 ### MCP Integration
 
 ```typescript
+import open from "open";
 import { browserAuth, fileStore } from "oauth-callback/mcp";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 
 const authProvider = browserAuth({
+  launch: open,
   store: fileStore(),
   scope: "read write",
 });
@@ -274,6 +280,7 @@ class RedisStore implements TokenStore {
 }
 
 const authProvider = browserAuth({
+  launch: open,
   store: new RedisStore(),
 });
 ```
@@ -301,6 +308,7 @@ if (result.state !== state) {
 
 // Use ephemeral storage for maximum security
 const authProvider = browserAuth({
+  launch: open,
   store: inMemoryStore(), // No disk persistence
 });
 
@@ -349,6 +357,7 @@ Automatically register OAuth clients without pre-configuration:
 ```typescript
 // No client_id or client_secret needed!
 const authProvider = browserAuth({
+  launch: open,
   scope: "read write",
   store: fileStore(),
 });
@@ -359,9 +368,13 @@ const authProvider = browserAuth({
 ```typescript
 function createAuthProvider(env: "dev" | "staging" | "prod") {
   const configs = {
-    dev: { port: 3000, store: inMemoryStore() },
-    staging: { port: 3001, store: fileStore("~/.mcp/staging.json") },
-    prod: { port: 3002, store: fileStore("~/.mcp/prod.json") },
+    dev: { launch: open, port: 3000, store: inMemoryStore() },
+    staging: {
+      launch: open,
+      port: 3001,
+      store: fileStore("~/.mcp/staging.json"),
+    },
+    prod: { launch: open, port: 3002, store: fileStore("~/.mcp/prod.json") },
   };
   return browserAuth(configs[env]);
 }
@@ -371,6 +384,7 @@ function createAuthProvider(env: "dev" | "staging" | "prod") {
 
 ```typescript
 const authProvider = browserAuth({
+  launch: open,
   onRequest: (req) => {
     const url = new URL(req.url);
     console.log(`[OAuth] ${req.method} ${url.pathname}`);
@@ -401,7 +415,7 @@ class CustomOAuthProvider {
 }
 
 // After: Using browserAuth
-const authProvider = browserAuth({ store: fileStore() });
+const authProvider = browserAuth({ launch: open, store: fileStore() });
 ```
 
 ## API Stability

@@ -58,7 +58,7 @@ interface GetAuthCodeOptions {
   hostname?: string; // Hostname (default: "localhost")
   callbackPath?: string; // Callback path (default: "/callback")
   timeout?: number; // Timeout in ms (default: 30000)
-  openBrowser?: boolean; // Auto-open browser (default: true)
+  launch?: (url: string) => unknown; // Optional URL launcher
   successHtml?: string; // Custom success HTML
   errorHtml?: string; // Custom error HTML template
   signal?: AbortSignal; // Cancellation signal
@@ -391,12 +391,11 @@ interface BrowserAuthOptions {
 
   // Storage
   store?: TokenStore; // Token storage
-  storeKey?: string; // Storage key prefix
+  storeKey?: string; // Storage key for token isolation
 
   // Behavior
-  openBrowser?: boolean | string; // Browser control
+  launch?: (url: string) => unknown; // URL launcher
   authTimeout?: number; // Timeout ms (default: 300000)
-  usePKCE?: boolean; // Enable PKCE (default: true)
 
   // UI
   successHtml?: string; // Success page HTML
@@ -425,8 +424,7 @@ const options: BrowserAuthOptions = {
   store: fileStore("~/.myapp/tokens.json"),
   storeKey: "production",
 
-  // Security
-  usePKCE: true,
+  // Timeout
   authTimeout: 600000, // 10 minutes
 
   // Custom UI

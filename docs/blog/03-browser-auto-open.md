@@ -1,6 +1,6 @@
 ---
 link: https://dev.to/kriasoft/browser-auto-open-seamless-oauth-ux-for-cli-tools-3nh4
-title: Browser Auto-Open: Seamless OAuth UX for CLI Tools
+title: "Browser Auto-Open: Seamless OAuth UX for CLI Tools"
 date: 2025-01-20
 author: Konstantin Tarkus
 tags: [oauth, cli, ux, authentication, browser]
@@ -33,29 +33,28 @@ open(url, { wait: false });
 
 Under the hood, `open` handles an impressive array of edge cases. It detects WSL and uses `powershell.exe` to launch Windows browsers. It respects the `BROWSER` environment variable for Linux users who've customized their setup. It even handles spaces in URLs and special characters that would break naive implementations.
 
-## Smart Defaults with Escape Hatches
+## Explicit Control with Escape Hatches
 
-The key to great developer experience is making the common case trivial while keeping the complex cases possible. In `oauth-callback`, browser launching is enabled by default but fully configurable:
+The key to great developer experience is making the common case trivial while keeping the complex cases possible. In `oauth-callback`, browser launching is explicit via the `launch` callback:
 
 ```typescript
-// Default behavior - just works
+import open from "open";
+
+// Default behavior - pass open as launcher
 const result = await getAuthCode({
   authorizationUrl: "https://oauth.example.com/authorize?...",
+  launch: open,
 });
 
-// Disable for CI/headless environments
-const result = await getAuthCode({
-  authorizationUrl: url,
-  openBrowser: false, // User must manually open the URL
-});
+// Headless/CI environments - omit launch, print URL manually
+console.log(`Please open: ${url}`);
+const result = await getAuthCode({ authorizationUrl: url });
 
 // Custom browser handling
 const result = await getAuthCode({
   authorizationUrl: url,
-  openBrowser: false,
+  launch: (url) => myCustomBrowserLauncher(url),
 });
-// Implement your own logic
-await myCustomBrowserLauncher(url);
 ```
 
 This flexibility becomes crucial in different environments. CI systems often run headless, so automatic browser launching would fail. Some users prefer copying URLs to browsers on different machines. Others might be running in containers or SSH sessions where browser access is impossible.
@@ -65,14 +64,14 @@ This flexibility becomes crucial in different environments. CI systems often run
 Browser launching can fail for numerous reasons: the system might be headless, the user might have unusual configurations, or security policies might block the operation. Rather than crashing, provide a fallback:
 
 ```typescript
-async function launchBrowser(url: string, options: GetAuthCodeOptions) {
-  if (!options.openBrowser) {
+async function launchBrowser(url: string, launch?: (url: string) => unknown) {
+  if (!launch) {
     console.log(`Please open this URL in your browser:\n${url}`);
     return;
   }
 
   try {
-    await open(url);
+    await launch(url);
     console.log("Opening browser...");
   } catch (error) {
     // Fallback to manual URL opening
@@ -99,13 +98,11 @@ export async function getAuthCode(options: GetAuthCodeOptions) {
       hostname: options.hostname,
     });
 
-    // Launch browser without waiting
-    if (options.openBrowser) {
-      // Don't await - let it run in parallel
-      open(options.authorizationUrl).catch(() => {
-        // Log but don't fail
-        console.log("Note: Could not open browser automatically");
-      });
+    // Launch browser without waiting (best-effort)
+    if (options.launch) {
+      Promise.resolve()
+        .then(() => options.launch(options.authorizationUrl))
+        .catch(() => {});
     }
 
     // Server is ready regardless of browser status
@@ -125,15 +122,15 @@ This pattern ensures your callback server is always ready, even if the browser t
 
 ## Testing Without Real Browsers
 
-Automated testing shouldn't spawn actual browser windows. The `openBrowser` flag enables test-friendly behavior:
+Automated testing shouldn't spawn actual browser windows. Simply omit the `launch` callback:
 
 ```typescript
-// In tests
+// In tests - omit launch to prevent browser
 const mockProvider = new MockOAuthProvider();
 
 const result = await getAuthCode({
   authorizationUrl: mockProvider.authUrl,
-  openBrowser: false, // Prevent browser launch
+  // No launch - tests simulate OAuth redirect directly
   port: 0, // Use random available port
 });
 
@@ -146,23 +143,22 @@ await mockProvider.completeAuth({
 expect(result.code).toBe("test-auth-code");
 ```
 
-For integration with Model Context Protocol servers or other automation scenarios, you might want programmatic control:
+For integration with Model Context Protocol servers or other automation scenarios:
 
 ```typescript
+import open from "open";
+
 export const browserAuth = () => ({
   async authenticate(params: AuthenticateParams) {
-    const options = {
+    const launch = process.env.CI
+      ? () => params.onAuthUrl(params.url) // Let MCP client display URL
+      : open;
+
+    return getAuthCode({
       authorizationUrl: params.url,
-      openBrowser: process.env.CI ? false : true,
+      launch,
       timeout: params.timeout,
-    };
-
-    if (!options.openBrowser) {
-      // MCP client handles URL display
-      await params.onAuthUrl(params.url);
-    }
-
-    return getAuthCode(options);
+    });
   },
 });
 ```

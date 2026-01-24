@@ -81,6 +81,7 @@ Select scopes based on your needs:
 Here's a basic example connecting to Linear's MCP server:
 
 ```typescript
+import open from "open";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { browserAuth, fileStore } from "oauth-callback/mcp";
@@ -93,6 +94,7 @@ async function connectToLinear() {
 
   // Create OAuth provider with credentials
   const authProvider = browserAuth({
+    launch: open,
     clientId: process.env.LINEAR_CLIENT_ID,
     clientSecret: process.env.LINEAR_CLIENT_SECRET,
     scope: "read write issues:create issues:update",
@@ -172,6 +174,9 @@ Configure the OAuth provider for Linear:
 
 ```typescript
 const authProvider = browserAuth({
+  // Browser launch callback
+  launch: open,
+
   // OAuth credentials
   clientId: process.env.LINEAR_CLIENT_ID,
   clientSecret: process.env.LINEAR_CLIENT_SECRET,
@@ -190,9 +195,6 @@ const authProvider = browserAuth({
 
   // Timeouts
   authTimeout: 300000, // 5 minutes
-
-  // Security
-  usePKCE: true, // Recommended for public clients
 
   // Debugging
   onRequest(req) {
@@ -335,6 +337,7 @@ client.on("resource_updated", (resource) => {
 Create a reusable Linear MCP client:
 
 ```typescript
+import open from "open";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { browserAuth, fileStore } from "oauth-callback/mcp";
@@ -349,6 +352,7 @@ class LinearMCPClient {
     storePath?: string;
   }) {
     this.authProvider = browserAuth({
+      launch: open,
       clientId: options?.clientId || process.env.LINEAR_CLIENT_ID,
       clientSecret: options?.clientSecret || process.env.LINEAR_CLIENT_SECRET,
       scope: "read write issues:create issues:update",
@@ -751,10 +755,12 @@ LINEAR_TEAM_ID=team_eng
 
 ```typescript
 // Load configuration
+import open from "open";
 import { config } from "dotenv";
 config();
 
 const authProvider = browserAuth({
+  launch: open,
   clientId: process.env.LINEAR_CLIENT_ID!,
   clientSecret: process.env.LINEAR_CLIENT_SECRET!,
   scope: "read write",
@@ -833,6 +839,7 @@ Check your Linear OAuth app configuration:
 ```typescript
 // Verify redirect URI matches
 const authProvider = browserAuth({
+  launch: open,
   clientId: "...",
   clientSecret: "...",
   port: 3000, // Must match redirect URI port
@@ -878,6 +885,7 @@ Handle token refresh errors:
 
 ```typescript
 const authProvider = browserAuth({
+  launch: open,
   store: fileStore(),
   onTokenRefreshError: async (error) => {
     console.error("Token refresh failed:", error);

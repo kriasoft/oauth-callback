@@ -13,7 +13,6 @@ import type {
 import { calculateExpiry } from "../utils/token";
 import { inMemoryStore } from "../storage/memory";
 import { getAuthCode } from "../index";
-import { OAuthError } from "../errors";
 import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
 import type {
   OAuthClientInformation,
@@ -30,9 +29,11 @@ import type {
  *
  * @example
  * ```typescript
+ * import open from "open";
+ *
  * const transport = new StreamableHTTPClientTransport(
  *   new URL("https://mcp.notion.com/mcp"),
- *   { authProvider: browserAuth() }
+ *   { authProvider: browserAuth({ launch: open }) }
  * );
  * ```
  */
@@ -44,6 +45,7 @@ export function browserAuth(
 
 /**
  * Browser-based OAuth provider for MCP SDK.
+ * @invariant PKCE is always enabled (SDK calls saveCodeVerifier/codeVerifier).
  * @invariant addClientAuthentication() must remain undefined (SDK constraint).
  * @invariant Concurrent auth/refresh attempts are serialized.
  */
@@ -54,8 +56,7 @@ class BrowserOAuthProvider implements OAuthClientProvider {
   private readonly _hostname: string;
   private readonly _callbackPath: string;
   private readonly _authTimeout: number;
-  private readonly _usePKCE: boolean;
-  private readonly _openBrowser: boolean | string;
+  private readonly _launch?: (url: string) => unknown;
   private readonly _clientId?: string;
   private readonly _clientSecret?: string;
   private readonly _scope?: string;
@@ -73,7 +74,6 @@ class BrowserOAuthProvider implements OAuthClientProvider {
   private _tokensLoaded = false;
   private _loadingTokens?: Promise<void>;
   private _authInProgress?: Promise<void>;
-  private _refreshInProgress?: Promise<void>;
 
   constructor(options: BrowserAuthOptions = {}) {
     this._store = options.store ?? inMemoryStore();
@@ -82,9 +82,7 @@ class BrowserOAuthProvider implements OAuthClientProvider {
     this._hostname = options.hostname ?? "localhost";
     this._callbackPath = options.callbackPath ?? "/callback";
     this._authTimeout = options.authTimeout ?? 300000;
-    this._usePKCE = options.usePKCE ?? true;
-    this._openBrowser = options.openBrowser ?? true;
-
+    this._launch = options.launch;
     this._clientId = options.clientId;
     this._clientSecret = options.clientSecret;
     this._scope = options.scope;
@@ -123,7 +121,7 @@ class BrowserOAuthProvider implements OAuthClientProvider {
       // Load client info if using extended store
       if (this._isOAuthStore(this._store)) {
         const clientInfo = await this._store.getClient(this._storeKey);
-        if (clientInfo) {
+        if (clientInfo?.clientId) {
           this._clientInfo = {
             client_id: clientInfo.clientId,
             client_secret: clientInfo.clientSecret,
@@ -135,20 +133,24 @@ class BrowserOAuthProvider implements OAuthClientProvider {
 
         // Load session state
         const session = await this._store.getSession(this._storeKey);
-        if (session) {
+        if (session?.codeVerifier) {
           this._codeVerifier = session.codeVerifier;
         }
       }
 
       this._tokensLoaded = true;
-    } catch (error) {
-      console.warn("Failed to load stored data:", error);
+    } catch {
+      // Ignore store errors; fallback to fresh auth
       this._tokensLoaded = true;
     }
   }
 
   private _isOAuthStore(store: any): store is OAuthStore {
-    return typeof store.getClient === "function";
+    return (
+      typeof store.getClient === "function" &&
+      typeof store.setClient === "function" &&
+      typeof store.getSession === "function"
+    );
   }
 
   get redirectUrl(): string {
@@ -218,20 +220,9 @@ class BrowserOAuthProvider implements OAuthClientProvider {
 
     // Check expiry using stored expiresAt from initial token response
     const stored = await this._store.get(this._storeKey);
-    if (stored?.expiresAt) {
-      if (Date.now() >= stored.expiresAt - 60000) {
-        // Expired with 60s buffer
-        if (this._tokens.refresh_token) {
-          try {
-            await this._refreshTokens();
-            return this._tokens;
-          } catch (error) {
-            console.warn("Token refresh failed:", error);
-            return undefined;
-          }
-        }
-        return undefined;
-      }
+    if (stored?.expiresAt && Date.now() >= stored.expiresAt - 60000) {
+      // Token expired (with 60s buffer). Refresh not yet implemented — trigger re-auth.
+      return undefined;
     }
 
     return this._tokens;
@@ -269,59 +260,29 @@ class BrowserOAuthProvider implements OAuthClientProvider {
   }
 
   private async _doAuthorization(authorizationUrl: URL): Promise<void> {
-    let lastError: Error | undefined;
-    const maxRetries = 2;
+    const result = await getAuthCode({
+      authorizationUrl: authorizationUrl.href,
+      port: this._port,
+      hostname: this._hostname,
+      callbackPath: this._callbackPath,
+      timeout: this._authTimeout,
+      launch: this._launch,
+      successHtml: this._successHtml,
+      errorHtml: this._errorHtml,
+      onRequest: this._onRequest,
+    });
 
-    for (let attempt = 0; attempt <= maxRetries; attempt++) {
-      try {
-        const result = await getAuthCode({
-          authorizationUrl: authorizationUrl.href,
-          port: this._port,
-          hostname: this._hostname,
-          callbackPath: this._callbackPath,
-          timeout: this._authTimeout,
-          openBrowser:
-            typeof this._openBrowser === "boolean" ? this._openBrowser : true,
-          successHtml: this._successHtml,
-          errorHtml: this._errorHtml,
-          onRequest: this._onRequest,
-        });
+    /** Cache auth code for SDK's separate token exchange call. */
+    this._pendingAuthCode = result.code;
+    this._pendingAuthState = result.state;
 
-        /** Cache auth code for SDK's separate token exchange call. */
-        this._pendingAuthCode = result.code;
-        this._pendingAuthState = result.state;
-
-        /** Auto-cleanup stale auth codes after timeout to prevent leaks. */
-        setTimeout(() => {
-          if (this._pendingAuthCode === result.code) {
-            this._pendingAuthCode = undefined;
-            this._pendingAuthState = undefined;
-          }
-        }, this._authTimeout);
-
-        return;
-      } catch (error) {
-        lastError = error instanceof Error ? error : new Error(String(error));
-
-        if (error instanceof OAuthError) {
-          throw error; // OAuth errors are user-actionable, don't retry
-        }
-
-        if (attempt < maxRetries) {
-          console.warn(
-            `Auth attempt ${attempt + 1} failed, retrying...`,
-            error,
-          );
-          await new Promise((resolve) =>
-            setTimeout(resolve, 1000 * (attempt + 1)),
-          );
-        }
+    /** Auto-cleanup stale auth codes after timeout to prevent leaks. */
+    setTimeout(() => {
+      if (this._pendingAuthCode === result.code) {
+        this._pendingAuthCode = undefined;
+        this._pendingAuthState = undefined;
       }
-    }
-
-    throw new Error(
-      `OAuth authorization failed after ${maxRetries + 1} attempts: ${lastError?.message}`,
-    );
+    }, this._authTimeout);
   }
 
   async saveCodeVerifier(codeVerifier: string): Promise<void> {
@@ -348,8 +309,18 @@ class BrowserOAuthProvider implements OAuthClientProvider {
     scope: "all" | "client" | "tokens" | "verifier",
   ): Promise<void> {
     /**
-     * WORKAROUND: SDK calls invalidate("all") during token exchange.
-     * Must preserve client info and verifier until exchange completes.
+     * SDK behavioral dependency: The MCP SDK may call invalidate("all") during
+     * token exchange if the authorization server returns an error. The call
+     * sequence we protect against:
+     *
+     *   1. SDK calls getPendingAuthCode() → sets _isExchangingCode = true
+     *   2. SDK calls codeVerifier() to build token request
+     *   3. SDK sends token exchange request to authorization server
+     *   4. Server returns error → SDK calls invalidateCredentials("all")
+     *   5. SDK retries from step 2, but verifier is gone → permanent failure
+     *
+     * Without this guard, step 4 would clear the verifier needed for step 5.
+     * The flag is reset when SDK calls invalidate("client") after exchange.
      */
     if (scope === "all" && this._isExchangingCode) {
       /** Only clear tokens; preserve client and verifier for ongoing exchange. */
@@ -373,9 +344,8 @@ class BrowserOAuthProvider implements OAuthClientProvider {
       case "client":
         this._clientInfo = undefined;
         if (this._isOAuthStore(this._store)) {
-          await this._store.setClient(this._storeKey, {
-            clientId: "",
-          });
+          // Empty clientId signals deletion (OAuthStore has no deleteClient method)
+          await this._store.setClient(this._storeKey, { clientId: "" });
         }
         break;
       case "tokens":
@@ -385,6 +355,7 @@ class BrowserOAuthProvider implements OAuthClientProvider {
       case "verifier":
         this._codeVerifier = undefined;
         if (this._isOAuthStore(this._store)) {
+          // Empty session signals deletion (OAuthStore has no deleteSession method)
           await this._store.setSession(this._storeKey, {});
         }
         break;
@@ -411,7 +382,7 @@ class BrowserOAuthProvider implements OAuthClientProvider {
         state: this._pendingAuthState,
       };
 
-      /** Signal token exchange to protect state in invalidateCredentials(). */
+      /** Protect verifier from SDK's invalidate("all") during exchange. */
       this._isExchangingCode = true;
 
       this._pendingAuthCode = undefined;
@@ -420,37 +391,6 @@ class BrowserOAuthProvider implements OAuthClientProvider {
       return result;
     }
     return undefined;
-  }
-
-  private async _refreshTokens(): Promise<void> {
-    /** Serialize refresh attempts to prevent token corruption. */
-    if (this._refreshInProgress) {
-      await this._refreshInProgress;
-      return;
-    }
-
-    this._refreshInProgress = this._doRefreshTokens();
-    try {
-      await this._refreshInProgress;
-    } finally {
-      this._refreshInProgress = undefined;
-    }
-  }
-
-  private async _doRefreshTokens(): Promise<void> {
-    if (!this._tokens?.refresh_token) {
-      throw new Error("No refresh token available");
-    }
-
-    const clientInfo = await this.clientInformation();
-    if (!clientInfo?.client_id) {
-      throw new Error("No client information available for refresh");
-    }
-
-    /** TODO: Implement refresh when token endpoint URL is available from server metadata. */
-    throw new Error(
-      "Token refresh not yet implemented - requires token endpoint URL",
-    );
   }
 
   /** SDK constraint: addClientAuthentication() must not exist on this class. */
