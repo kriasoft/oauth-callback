@@ -1,0 +1,7085 @@
+---
+url: /oauth-callback/api.md
+description: >-
+  Complete API documentation for OAuth Callback library functions, types, and
+  interfaces.
+---
+
+# API Reference
+
+OAuth Callback provides a comprehensive set of APIs for handling OAuth 2.0 authorization flows in CLI tools, desktop applications, and Model Context Protocol (MCP) clients. The library is designed with modern Web Standards APIs and works across Node.js 18+, Deno, and Bun.
+
+## Quick Navigation
+
+### Core Functions
+
+* [**getAuthCode**](/api/get-auth-code) - Capture OAuth authorization codes via localhost callback
+* [**browserAuth**](/api/browser-auth) - MCP SDK-compatible OAuth provider with DCR support
+
+### Storage Providers
+
+* [**Storage Providers**](/api/storage-providers) - Token persistence interfaces and implementations
+* **inMemoryStore** - Ephemeral in-memory token storage
+* **fileStore** - Persistent file-based token storage
+
+### Error Handling
+
+* [**OAuthError**](/api/oauth-error) - OAuth-specific error class with RFC 6749 compliance
+
+### Type Definitions
+
+* [**Types**](/api/types) - Complete TypeScript type reference
+
+## Import Methods
+
+OAuth Callback supports multiple import patterns to suit different use cases:
+
+### Main Package Import
+
+```typescript
+import open from "open";
+
+// Core functionality
+import { getAuthCode, OAuthError } from "oauth-callback";
+
+// Namespace import for MCP features
+import { mcp } from "oauth-callback";
+const authProvider = mcp.browserAuth({ launch: open, store: mcp.fileStore() });
+```
+
+### MCP-Specific Import
+
+```typescript
+// Direct MCP imports (recommended for MCP projects)
+import { browserAuth, fileStore, inMemoryStore } from "oauth-callback/mcp";
+import type { TokenStore, OAuthStore, Tokens } from "oauth-callback/mcp";
+```
+
+## Core APIs
+
+### getAuthCode(input)
+
+The primary function for capturing OAuth authorization codes through a localhost callback server.
+
+```typescript
+function getAuthCode(
+  input: string | GetAuthCodeOptions,
+): Promise<CallbackResult>;
+```
+
+**Key Features:**
+
+* Automatic browser opening
+* Configurable port and timeout
+* Custom HTML templates
+* AbortSignal support
+* Comprehensive error handling
+
+[**Full Documentation →**](/api/get-auth-code)
+
+### browserAuth(options)
+
+MCP SDK-compatible OAuth provider that handles the complete OAuth flow including Dynamic Client Registration.
+
+```typescript
+function browserAuth(options?: BrowserAuthOptions): OAuthClientProvider;
+```
+
+**Key Features:**
+
+* Dynamic Client Registration (RFC 7591)
+* Automatic token expiry handling
+* PKCE support (RFC 7636)
+* Flexible token storage
+* MCP SDK integration
+
+[**Full Documentation →**](/api/browser-auth)
+
+## Storage APIs
+
+### Storage Interfaces
+
+OAuth Callback provides two storage interfaces for different levels of state management:
+
+```typescript
+// Basic token storage
+interface TokenStore {
+  get(key: string): Promise<Tokens | null>;
+  set(key: string, tokens: Tokens): Promise<void>;
+  delete(key: string): Promise<void>;
+  clear(): Promise<void>;
+}
+
+// Extended storage with DCR support
+interface OAuthStore extends TokenStore {
+  getClient(key: string): Promise<ClientInfo | null>;
+  setClient(key: string, client: ClientInfo): Promise<void>;
+  getSession(key: string): Promise<OAuthSession | null>;
+  setSession(key: string, session: OAuthSession): Promise<void>;
+}
+```
+
+[**Full Documentation →**](/api/storage-providers)
+
+### Built-in Implementations
+
+#### inMemoryStore()
+
+Ephemeral storage that keeps tokens in memory:
+
+```typescript
+const authProvider = browserAuth({
+  launch: open,
+  store: inMemoryStore(), // Tokens lost on restart
+});
+```
+
+#### fileStore(filepath?)
+
+Persistent storage that saves tokens to a JSON file:
+
+```typescript
+const authProvider = browserAuth({
+  launch: open,
+  store: fileStore(), // Default: ~/.mcp/tokens.json
+});
+```
+
+## Error Handling
+
+### OAuthError
+
+Specialized error class for OAuth-specific failures:
+
+```typescript
+class OAuthError extends Error {
+  error: string; // OAuth error code
+  error_description?: string; // Human-readable description
+  error_uri?: string; // URI with more information
+}
+```
+
+**Common Error Codes:**
+
+* `access_denied` - User denied authorization
+* `invalid_scope` - Requested scope is invalid
+* `server_error` - Authorization server error
+* `temporarily_unavailable` - Service temporarily down
+
+[**Full Documentation →**](/api/oauth-error)
+
+## Type System
+
+OAuth Callback is fully typed with TypeScript, providing comprehensive type definitions for all APIs:
+
+### Core Types
+
+```typescript
+interface GetAuthCodeOptions {
+  authorizationUrl: string;
+  port?: number;
+  hostname?: string;
+  callbackPath?: string;
+  timeout?: number;
+  launch?: (url: string) => unknown;
+  successHtml?: string;
+  errorHtml?: string;
+  signal?: AbortSignal;
+  onRequest?: (req: Request) => void;
+}
+
+interface CallbackResult {
+  code: string;
+  state?: string;
+  [key: string]: any;
+}
+```
+
+### Storage Types
+
+```typescript
+interface Tokens {
+  accessToken: string;
+  refreshToken?: string;
+  expiresAt?: number;
+  scope?: string;
+}
+
+interface ClientInfo {
+  clientId: string;
+  clientSecret?: string;
+  clientIdIssuedAt?: number;
+  clientSecretExpiresAt?: number;
+}
+```
+
+[**Full Type Reference →**](/api/types)
+
+## Usage Patterns
+
+### Simple OAuth Flow
+
+```typescript
+import { getAuthCode } from "oauth-callback";
+
+const result = await getAuthCode(
+  "https://github.com/login/oauth/authorize?client_id=xxx",
+);
+console.log("Code:", result.code);
+```
+
+### MCP Integration
+
+```typescript
+import open from "open";
+import { browserAuth, fileStore } from "oauth-callback/mcp";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+
+const authProvider = browserAuth({
+  launch: open,
+  store: fileStore(),
+  scope: "read write",
+});
+
+const transport = new StreamableHTTPClientTransport(
+  new URL("https://mcp.example.com"),
+  { authProvider },
+);
+```
+
+### Error Handling
+
+```typescript
+import { getAuthCode, OAuthError } from "oauth-callback";
+
+try {
+  const result = await getAuthCode(authUrl);
+} catch (error) {
+  if (error instanceof OAuthError) {
+    console.error(`OAuth error: ${error.error}`);
+    console.error(`Details: ${error.error_description}`);
+  }
+}
+```
+
+### Custom Storage
+
+```typescript
+import { TokenStore, Tokens } from "oauth-callback/mcp";
+
+class RedisStore implements TokenStore {
+  async get(key: string): Promise<Tokens | null> {
+    // Implementation
+  }
+  async set(key: string, tokens: Tokens): Promise<void> {
+    // Implementation
+  }
+  // ... other methods
+}
+
+const authProvider = browserAuth({
+  launch: open,
+  store: new RedisStore(),
+});
+```
+
+## Security Considerations
+
+### Built-in Security Features
+
+* **PKCE by default** - Proof Key for Code Exchange enabled
+* **State validation** - Automatic CSRF protection
+* **Localhost-only binding** - Server only accepts local connections
+* **Automatic cleanup** - Server shuts down after callback
+* **Secure file permissions** - Mode 0600 for file storage
+
+### Best Practices
+
+```typescript
+// Always validate state for CSRF protection
+const state = crypto.randomUUID();
+const authUrl = `https://example.com/authorize?state=${state}&...`;
+const result = await getAuthCode(authUrl);
+if (result.state !== state) {
+  throw new Error("State mismatch - possible CSRF attack");
+}
+
+// Use ephemeral storage for maximum security
+const authProvider = browserAuth({
+  launch: open,
+  store: inMemoryStore(), // No disk persistence
+});
+
+// Implement PKCE for public clients
+const verifier = randomBytes(32).toString("base64url");
+const challenge = createHash("sha256").update(verifier).digest("base64url");
+```
+
+## Platform Support
+
+### Runtime Compatibility
+
+| Runtime | Minimum Version | Status             |
+| ------- | --------------- | ------------------ |
+| Node.js | 18.0.0          | ✅ Fully supported |
+| Deno    | 1.0.0           | ✅ Fully supported |
+| Bun     | 1.0.0           | ✅ Fully supported |
+
+### OAuth Provider Compatibility
+
+OAuth Callback works with any OAuth 2.0 provider that supports the authorization code flow:
+
+* ✅ GitHub
+* ✅ Google
+* ✅ Microsoft
+* ✅ Notion (with DCR)
+* ✅ Linear
+* ✅ Any RFC 6749 compliant provider
+
+### Browser Compatibility
+
+The library opens the user's default browser for authorization. All modern browsers are supported:
+
+* ✅ Chrome/Chromium
+* ✅ Firefox
+* ✅ Safari
+* ✅ Edge
+* ✅ Any browser that handles `http://localhost` URLs
+
+## Advanced Features
+
+### Dynamic Client Registration
+
+Automatically register OAuth clients without pre-configuration:
+
+```typescript
+// No client_id or client_secret needed!
+const authProvider = browserAuth({
+  launch: open,
+  scope: "read write",
+  store: fileStore(),
+});
+```
+
+### Multi-Environment Support
+
+```typescript
+function createAuthProvider(env: "dev" | "staging" | "prod") {
+  const configs = {
+    dev: { launch: open, port: 3000, store: inMemoryStore() },
+    staging: {
+      launch: open,
+      port: 3001,
+      store: fileStore("~/.mcp/staging.json"),
+    },
+    prod: { launch: open, port: 3002, store: fileStore("~/.mcp/prod.json") },
+  };
+  return browserAuth(configs[env]);
+}
+```
+
+### Request Logging
+
+```typescript
+const authProvider = browserAuth({
+  launch: open,
+  onRequest: (req) => {
+    const url = new URL(req.url);
+    console.log(`[OAuth] ${req.method} ${url.pathname}`);
+  },
+});
+```
+
+## Migration Guides
+
+### From Manual OAuth Implementation
+
+```typescript
+// Before: Manual OAuth flow
+const server = http.createServer();
+server.listen(3000);
+// ... complex callback handling ...
+
+// After: Using OAuth Callback
+const result = await getAuthCode(authUrl);
+```
+
+### To MCP Integration
+
+```typescript
+// Before: Custom OAuth provider
+class CustomOAuthProvider {
+  /* ... */
+}
+
+// After: Using browserAuth
+const authProvider = browserAuth({ launch: open, store: fileStore() });
+```
+
+## API Stability
+
+| API             | Status | Since  | Notes                         |
+| --------------- | ------ | ------ | ----------------------------- |
+| `getAuthCode`   | Stable | v1.0.0 | Core API, backward compatible |
+| `browserAuth`   | Stable | v2.0.0 | MCP integration               |
+| `OAuthError`    | Stable | v1.0.0 | Error handling                |
+| `inMemoryStore` | Stable | v2.0.0 | Storage provider              |
+| `fileStore`     | Stable | v2.0.0 | Storage provider              |
+| Types           | Stable | v1.0.0 | TypeScript definitions        |
+
+## Related Resources
+
+* [Core Concepts](/core-concepts) - Architecture and design patterns
+* [Getting Started](/getting-started) - Quick start guide
+* [GitHub Repository](https://github.com/kriasoft/oauth-callback) - Source code and issues
+
+---
+
+---
+url: /oauth-callback/api/browser-auth.md
+description: >-
+  MCP SDK-compatible OAuth provider for browser-based authentication flows with
+  Dynamic Client Registration support.
+---
+
+# browserAuth
+
+The `browserAuth` function creates an OAuth provider that integrates seamlessly with the Model Context Protocol (MCP) SDK. It handles the entire OAuth flow including Dynamic Client Registration, token management, and automatic refresh — all through a browser-based authorization flow.
+
+## Function Signature
+
+```typescript
+function browserAuth(options?: BrowserAuthOptions): OAuthClientProvider;
+```
+
+## Parameters
+
+### BrowserAuthOptions
+
+| Property       | Type                       | Default           | Description                        |
+| -------------- | -------------------------- | ----------------- | ---------------------------------- |
+| `clientId`     | `string`                   | *none*            | Pre-registered OAuth client ID     |
+| `clientSecret` | `string`                   | *none*            | Pre-registered OAuth client secret |
+| `scope`        | `string`                   | *none*            | OAuth scopes to request            |
+| `port`         | `number`                   | `3000`            | Port for local callback server     |
+| `hostname`     | `string`                   | `"localhost"`     | Hostname to bind server to         |
+| `callbackPath` | `string`                   | `"/callback"`     | URL path for OAuth callback        |
+| `store`        | `TokenStore`               | `inMemoryStore()` | Token storage implementation       |
+| `storeKey`     | `string`                   | `"mcp-tokens"`    | Storage key for token isolation    |
+| `launch`       | `(url: string) => unknown` | *none*            | Callback to launch auth URL        |
+| `authTimeout`  | `number`                   | `300000`          | Auth timeout in ms (5 min)         |
+| `successHtml`  | `string`                   | *built-in*        | Custom success page HTML           |
+| `errorHtml`    | `string`                   | *built-in*        | Custom error page HTML             |
+| `onRequest`    | `(req: Request) => void`   | *none*            | Request logging callback           |
+
+## Return Value
+
+Returns an `OAuthClientProvider` instance that implements the MCP SDK authentication interface:
+
+```typescript
+interface OAuthClientProvider {
+  // Called by MCP SDK for authentication
+  redirectToAuthorization(authorizationUrl: URL): Promise<void>;
+
+  // Token management
+  tokens(): Promise<OAuthTokens | undefined>;
+  saveTokens(tokens: OAuthTokens): Promise<void>;
+
+  // Dynamic Client Registration support
+  clientInformation(): Promise<OAuthClientInformation | undefined>;
+  saveClientInformation(info: OAuthClientInformationFull): Promise<void>;
+
+  // PKCE support
+  codeVerifier(): Promise<string>;
+  saveCodeVerifier(verifier: string): Promise<void>;
+
+  // State management
+  state(): Promise<string>;
+  invalidateCredentials(
+    scope: "all" | "client" | "tokens" | "verifier",
+  ): Promise<void>;
+}
+```
+
+## Basic Usage
+
+### Simple MCP Client
+
+The simplest usage with default settings:
+
+```typescript
+import open from "open";
+import { browserAuth } from "oauth-callback/mcp";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+
+// Create OAuth provider - pass open to launch browser
+const authProvider = browserAuth({ launch: open });
+
+// Use with MCP transport
+const transport = new StreamableHTTPClientTransport(
+  new URL("https://mcp.example.com"),
+  { authProvider },
+);
+
+const client = new Client(
+  { name: "my-app", version: "1.0.0" },
+  { capabilities: {} },
+);
+
+await client.connect(transport);
+```
+
+### With Token Persistence
+
+Store tokens across sessions:
+
+```typescript
+import { browserAuth, fileStore } from "oauth-callback/mcp";
+
+const authProvider = browserAuth({
+  store: fileStore(), // Persists to ~/.mcp/tokens.json
+  scope: "read write",
+});
+```
+
+## Advanced Usage
+
+### Pre-Registered OAuth Clients
+
+If you have pre-registered OAuth credentials:
+
+```typescript
+const authProvider = browserAuth({
+  clientId: process.env.OAUTH_CLIENT_ID,
+  clientSecret: process.env.OAUTH_CLIENT_SECRET,
+  scope: "read write admin",
+  store: fileStore(),
+});
+```
+
+### Custom Storage Location
+
+Store tokens in a specific location:
+
+```typescript
+import { browserAuth, fileStore } from "oauth-callback/mcp";
+
+const authProvider = browserAuth({
+  store: fileStore("/path/to/my-tokens.json"),
+  storeKey: "my-app-production", // Namespace for multiple environments
+});
+```
+
+### Custom Port and Callback Path
+
+Configure the callback server:
+
+```typescript
+const authProvider = browserAuth({
+  port: 8080,
+  hostname: "127.0.0.1",
+  callbackPath: "/oauth/callback",
+  store: fileStore(),
+});
+```
+
+::: warning Redirect URI Configuration
+Ensure your OAuth app's redirect URI matches your configuration:
+
+* Configuration: `port: 8080`, `callbackPath: "/oauth/callback"`
+* Redirect URI: `http://localhost:8080/oauth/callback`
+  :::
+
+### Custom HTML Pages
+
+Provide branded callback pages:
+
+```typescript
+const authProvider = browserAuth({
+  successHtml: `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <title>Success!</title>
+        <style>
+          body {
+            font-family: -apple-system, system-ui, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            margin: 0;
+          }
+          .container {
+            text-align: center;
+            padding: 2rem;
+          }
+          h1 { font-size: 3rem; margin-bottom: 1rem; }
+          p { font-size: 1.2rem; opacity: 0.9; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <h1>🎉 Success!</h1>
+          <p>Authorization complete. You can close this window.</p>
+        </div>
+      </body>
+    </html>
+  `,
+  errorHtml: `
+    <!DOCTYPE html>
+    <html>
+      <body>
+        <h1>Authorization Failed</h1>
+        <p>Error: {{error}}</p>
+        <p>{{error_description}}</p>
+      </body>
+    </html>
+  `,
+});
+```
+
+### Request Logging
+
+Monitor OAuth flow for debugging:
+
+```typescript
+const authProvider = browserAuth({
+  onRequest: (req) => {
+    const url = new URL(req.url);
+    console.log(`[OAuth] ${req.method} ${url.pathname}`);
+
+    if (url.pathname === "/callback") {
+      console.log("[OAuth] Callback params:", url.searchParams.toString());
+    }
+  },
+  store: fileStore(),
+});
+```
+
+### Headless/CI Environment
+
+Disable browser opening for automated environments:
+
+```typescript
+const authProvider = browserAuth({
+  launch: () => {}, // Noop - no browser opening
+  authTimeout: 10000, // Shorter timeout for CI
+  store: inMemoryStore(),
+});
+```
+
+## Dynamic Client Registration
+
+OAuth Callback supports [RFC 7591](https://www.rfc-editor.org/rfc/rfc7591.html) Dynamic Client Registration, allowing automatic OAuth client registration:
+
+### How It Works
+
+```mermaid
+sequenceDiagram
+    participant App
+    participant browserAuth
+    participant MCP Server
+    participant Auth Server
+
+    App->>browserAuth: Create provider (no client_id)
+    App->>MCP Server: Connect via transport
+    MCP Server->>App: Requires authentication
+    App->>browserAuth: Initiate OAuth
+    browserAuth->>Auth Server: POST /register (DCR)
+    Auth Server->>browserAuth: Return client_id, client_secret
+    browserAuth->>browserAuth: Store credentials
+    browserAuth->>Auth Server: Start OAuth flow
+    Auth Server->>browserAuth: Return authorization code
+    browserAuth->>App: Authentication complete
+```
+
+### DCR Example
+
+No pre-registration needed:
+
+```typescript
+// No clientId or clientSecret required!
+const authProvider = browserAuth({
+  scope: "read write",
+  store: fileStore(), // Persist dynamically registered client
+});
+
+// The provider will automatically:
+// 1. Register a new OAuth client on first use
+// 2. Store the client credentials
+// 3. Reuse them for future sessions
+```
+
+### Benefits of DCR
+
+* **Zero Configuration**: Users don't need to manually register OAuth apps
+* **Automatic Setup**: Client registration happens transparently
+* **Credential Persistence**: Registered clients are reused across sessions
+* **Simplified Distribution**: Ship MCP clients without OAuth setup instructions
+
+## Token Storage
+
+### Storage Interfaces
+
+OAuth Callback provides two storage interfaces:
+
+#### TokenStore (Basic)
+
+```typescript
+interface TokenStore {
+  get(key: string): Promise<Tokens | null>;
+  set(key: string, tokens: Tokens): Promise<void>;
+  delete(key: string): Promise<void>;
+  clear(): Promise<void>;
+}
+```
+
+#### OAuthStore (Extended)
+
+```typescript
+interface OAuthStore extends TokenStore {
+  getClient(key: string): Promise<ClientInfo | null>;
+  setClient(key: string, client: ClientInfo): Promise<void>;
+  getSession(key: string): Promise<OAuthSession | null>;
+  setSession(key: string, session: OAuthSession): Promise<void>;
+}
+```
+
+### Built-in Implementations
+
+#### In-Memory Store
+
+Ephemeral storage (tokens lost on restart):
+
+```typescript
+import { browserAuth, inMemoryStore } from "oauth-callback/mcp";
+
+const authProvider = browserAuth({
+  store: inMemoryStore(),
+});
+```
+
+**Use cases:**
+
+* Development and testing
+* Short-lived CLI sessions
+* Maximum security (no persistence)
+
+#### File Store
+
+Persistent storage to JSON file:
+
+```typescript
+import { browserAuth, fileStore } from "oauth-callback/mcp";
+
+// Default location: ~/.mcp/tokens.json
+const authProvider = browserAuth({
+  store: fileStore(),
+});
+
+// Custom location
+const customAuth = browserAuth({
+  store: fileStore("/path/to/tokens.json"),
+});
+```
+
+**Use cases:**
+
+* Desktop applications
+* Long-running services
+* Multi-session authentication
+
+### Custom Storage Implementation
+
+Implement your own storage backend:
+
+```typescript
+import { TokenStore, Tokens } from "oauth-callback/mcp";
+
+class RedisStore implements TokenStore {
+  constructor(private redis: RedisClient) {}
+
+  async get(key: string): Promise<Tokens | null> {
+    const data = await this.redis.get(key);
+    return data ? JSON.parse(data) : null;
+  }
+
+  async set(key: string, tokens: Tokens): Promise<void> {
+    await this.redis.set(key, JSON.stringify(tokens));
+  }
+
+  async delete(key: string): Promise<void> {
+    await this.redis.del(key);
+  }
+
+  async clear(): Promise<void> {
+    // Clear all tokens with pattern matching
+    const keys = await this.redis.keys("mcp-tokens:*");
+    if (keys.length > 0) {
+      await this.redis.del(...keys);
+    }
+  }
+}
+
+// Use custom store
+const authProvider = browserAuth({
+  store: new RedisStore(redisClient),
+});
+```
+
+## Security Features
+
+### PKCE (Proof Key for Code Exchange)
+
+PKCE is always enabled for enhanced security. The MCP SDK handles PKCE automatically through the provider's `saveCodeVerifier()` and `codeVerifier()` methods.
+
+PKCE prevents authorization code interception attacks by:
+
+1. Generating a cryptographic code verifier
+2. Sending a hashed challenge with the authorization request
+3. Proving possession of the verifier during token exchange
+
+### State Parameter
+
+The provider automatically generates secure state parameters:
+
+```typescript
+// State is automatically generated and validated
+const authProvider = browserAuth();
+// No manual state handling needed!
+```
+
+### Token Expiry Management
+
+Tokens are automatically managed with expiry tracking:
+
+```typescript
+// The provider automatically:
+// 1. Tracks token expiry time
+// 2. Returns undefined for expired tokens
+// 3. Attempts refresh when refresh tokens are available
+```
+
+### Secure Storage
+
+File storage uses restrictive permissions:
+
+```typescript
+// Files are created with mode 0600 (owner read/write only)
+const authProvider = browserAuth({
+  store: fileStore(), // Secure file permissions
+});
+```
+
+## Error Handling
+
+### OAuth Errors
+
+The provider handles OAuth-specific errors:
+
+```typescript
+try {
+  await client.connect(transport);
+} catch (error) {
+  if (error.message.includes("access_denied")) {
+    console.log("User cancelled authorization");
+  } else if (error.message.includes("invalid_scope")) {
+    console.log("Requested scope not available");
+  } else {
+    console.error("Connection failed:", error);
+  }
+}
+```
+
+### Retry Logic
+
+The provider includes automatic retry for transient failures:
+
+```typescript
+// Built-in retry logic:
+// - 3 attempts for authorization
+// - Exponential backoff between retries
+// - OAuth errors are not retried (user-actionable)
+```
+
+### Timeout Handling
+
+Configure timeout for different scenarios:
+
+```typescript
+const authProvider = browserAuth({
+  authTimeout: 600000, // 10 minutes for first-time setup
+});
+```
+
+## Complete Examples
+
+### Notion MCP Integration
+
+Full example with Dynamic Client Registration:
+
+```typescript
+import { browserAuth, fileStore } from "oauth-callback/mcp";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+
+async function connectToNotion() {
+  // No client credentials needed - uses DCR!
+  const authProvider = browserAuth({
+    store: fileStore(), // Persist tokens and client registration
+    scope: "read write",
+    onRequest: (req) => {
+      console.log(`[Notion OAuth] ${new URL(req.url).pathname}`);
+    },
+  });
+
+  const transport = new StreamableHTTPClientTransport(
+    new URL("https://mcp.notion.com/mcp"),
+    { authProvider },
+  );
+
+  const client = new Client(
+    { name: "notion-client", version: "1.0.0" },
+    { capabilities: {} },
+  );
+
+  try {
+    await client.connect(transport);
+    console.log("Connected to Notion MCP!");
+
+    // List available tools
+    const tools = await client.listTools();
+    console.log("Available tools:", tools);
+
+    // Use a tool
+    const result = await client.callTool("search", {
+      query: "meeting notes",
+    });
+    console.log("Search results:", result);
+  } catch (error) {
+    console.error("Failed to connect:", error);
+  } finally {
+    await client.close();
+  }
+}
+
+connectToNotion();
+```
+
+### Multi-Environment Configuration
+
+Support development, staging, and production:
+
+```typescript
+import { browserAuth, fileStore } from "oauth-callback/mcp";
+
+function createAuthProvider(environment: "dev" | "staging" | "prod") {
+  const configs = {
+    dev: {
+      port: 3000,
+      store: inMemoryStore(), // No persistence in dev
+      authTimeout: 60000,
+      onRequest: (req) => console.log("[DEV]", req.url),
+    },
+    staging: {
+      port: 3001,
+      store: fileStore("~/.mcp/staging-tokens.json"),
+      storeKey: "staging",
+      authTimeout: 120000,
+    },
+    prod: {
+      port: 3002,
+      store: fileStore("~/.mcp/prod-tokens.json"),
+      storeKey: "production",
+      authTimeout: 300000,
+      clientId: process.env.PROD_CLIENT_ID,
+      clientSecret: process.env.PROD_CLIENT_SECRET,
+    },
+  };
+
+  return browserAuth(configs[environment]);
+}
+
+// Use appropriate environment
+const authProvider = createAuthProvider(
+  process.env.NODE_ENV as "dev" | "staging" | "prod",
+);
+```
+
+### Token Refresh Implementation
+
+While automatic refresh is pending full implementation, you can handle expired tokens:
+
+```typescript
+import { browserAuth, fileStore } from "oauth-callback/mcp";
+
+const authProvider = browserAuth({
+  store: fileStore(),
+  scope: "offline_access", // Request refresh token
+});
+
+async function withTokenRefresh(client: Client, operation: () => Promise<any>) {
+  try {
+    return await operation();
+  } catch (error) {
+    if (
+      error.message.includes("401") ||
+      error.message.includes("unauthorized")
+    ) {
+      console.log("Token expired, re-authenticating...");
+
+      // Clear expired tokens
+      await authProvider.invalidateCredentials("tokens");
+
+      // Reconnect (will trigger new auth)
+      await client.reconnect();
+
+      // Retry operation
+      return await operation();
+    }
+    throw error;
+  }
+}
+
+// Use with automatic retry
+const result = await withTokenRefresh(client, async () => {
+  return await client.callTool("get-data", {});
+});
+```
+
+## Testing
+
+### Unit Testing
+
+Mock the OAuth provider for tests:
+
+```typescript
+import { vi, describe, it, expect } from "vitest";
+
+// Create mock provider
+const mockAuthProvider = {
+  redirectToAuthorization: vi.fn(),
+  tokens: vi.fn().mockResolvedValue({
+    access_token: "test_token",
+    token_type: "Bearer",
+  }),
+  saveTokens: vi.fn(),
+  clientInformation: vi.fn(),
+  saveClientInformation: vi.fn(),
+  state: vi.fn().mockResolvedValue("test_state"),
+  codeVerifier: vi.fn().mockResolvedValue("test_verifier"),
+  saveCodeVerifier: vi.fn(),
+  invalidateCredentials: vi.fn(),
+};
+
+describe("MCP Client", () => {
+  it("should authenticate with OAuth", async () => {
+    const transport = new StreamableHTTPClientTransport(
+      new URL("https://test.example.com"),
+      { authProvider: mockAuthProvider },
+    );
+
+    const client = new Client(
+      { name: "test", version: "1.0.0" },
+      { capabilities: {} },
+    );
+
+    await client.connect(transport);
+
+    expect(mockAuthProvider.tokens).toHaveBeenCalled();
+  });
+});
+```
+
+### Integration Testing
+
+Test with a mock OAuth server:
+
+```typescript
+import { browserAuth, inMemoryStore } from "oauth-callback/mcp";
+import { createMockOAuthServer } from "./test-utils";
+
+describe("OAuth Flow Integration", () => {
+  let mockServer: MockOAuthServer;
+
+  beforeAll(async () => {
+    mockServer = createMockOAuthServer();
+    await mockServer.start();
+  });
+
+  afterAll(async () => {
+    await mockServer.stop();
+  });
+
+  it("should complete full OAuth flow", async () => {
+    const authProvider = browserAuth({
+      port: 3001,
+      launch: () => {}, // Noop - don't open browser in tests
+      store: inMemoryStore(),
+    });
+
+    // Simulate OAuth flow
+    await authProvider.redirectToAuthorization(
+      new URL(`http://localhost:${mockServer.port}/authorize`),
+    );
+
+    const tokens = await authProvider.tokens();
+    expect(tokens?.access_token).toBeDefined();
+  });
+});
+```
+
+## Troubleshooting
+
+### Common Issues
+
+::: details Port Already in Use
+
+```typescript
+// Use a different port
+const authProvider = browserAuth({
+  port: 8080, // Try alternative port
+});
+```
+
+:::
+
+::: details Tokens Not Persisting
+
+```typescript
+// Ensure you're using file store, not in-memory
+const authProvider = browserAuth({
+  store: fileStore(), // ✅ Persistent
+  // store: inMemoryStore() // ❌ Lost on restart
+});
+```
+
+:::
+
+::: details DCR Not Working
+Some servers may not support Dynamic Client Registration:
+
+```typescript
+// Fallback to pre-registered credentials
+const authProvider = browserAuth({
+  clientId: "your-client-id",
+  clientSecret: "your-client-secret",
+});
+```
+
+:::
+
+::: details Browser Not Opening
+
+```typescript
+import open from "open";
+
+// Conditionally open browser based on environment
+const authProvider = browserAuth({
+  launch: process.env.CI ? () => {} : open,
+});
+```
+
+:::
+
+## API Compatibility
+
+The `browserAuth` provider implements the MCP SDK's `OAuthClientProvider` interface:
+
+| Method                    | Status               | Notes                      |
+| ------------------------- | -------------------- | -------------------------- |
+| `redirectToAuthorization` | ✅ Fully supported   | Opens browser for auth     |
+| `tokens`                  | ✅ Fully supported   | Returns current tokens     |
+| `saveTokens`              | ✅ Fully supported   | Persists to storage        |
+| `clientInformation`       | ✅ Fully supported   | Returns client credentials |
+| `saveClientInformation`   | ✅ Fully supported   | Stores DCR results         |
+| `state`                   | ✅ Fully supported   | Generates secure state     |
+| `codeVerifier`            | ✅ Fully supported   | PKCE verifier              |
+| `saveCodeVerifier`        | ✅ Fully supported   | Stores PKCE verifier       |
+| `invalidateCredentials`   | ✅ Fully supported   | Clears stored data         |
+| `validateResourceURL`     | ✅ Returns undefined | Not applicable             |
+| `getPendingAuthCode`      | ✅ Internal use      | Used by SDK                |
+
+## Migration Guide
+
+### From Manual OAuth to browserAuth
+
+```typescript
+// Before: Manual OAuth implementation
+const code = await getAuthCode(authUrl);
+const tokens = await exchangeCodeForTokens(code);
+// Manual token storage and refresh...
+
+// After: Using browserAuth
+const authProvider = browserAuth({
+  launch: open,
+  store: fileStore(),
+});
+// Automatic handling of entire OAuth flow!
+```
+
+### From In-Memory to Persistent Storage
+
+```typescript
+// Before: Tokens lost on restart
+const authProvider = browserAuth({ launch: open });
+
+// After: Tokens persist across sessions
+const authProvider = browserAuth({
+  launch: open,
+  store: fileStore(),
+});
+```
+
+## Related APIs
+
+* [`getAuthCode`](/api/get-auth-code) - Low-level OAuth code capture
+* [`TokenStore`](/api/storage-providers) - Storage interface documentation
+* [`OAuthError`](/api/oauth-error) - OAuth error handling
+
+---
+
+---
+url: /oauth-callback/core-concepts.md
+description: >-
+  Master the fundamental concepts and architecture of OAuth Callback, from the
+  authorization flow to token management and MCP integration patterns.
+---
+
+# Core Concepts {#top}
+
+Understanding the core concepts behind **OAuth Callback** will help you build robust OAuth integrations in your CLI tools, desktop applications, and MCP clients. This page covers the fundamental patterns, architectural decisions, and key abstractions that power the library.
+
+## The Authorization Code Flow
+
+OAuth Callback implements the OAuth 2.0 Authorization Code Flow, the most secure flow for applications that can protect client secrets. This flow involves three key participants:
+
+```mermaid
+flowchart LR
+    A[Your App] -->|Step 1: Request authorization| B[Auth Server]
+    B -->|Step 2: User authenticates| C[User]
+    C -->|Step 3: Grants permission| B
+    B -->|Step 4: Returns code| A
+    A -->|Step 5: Exchange code| B
+    B -->|Step 6: Returns tokens| A
+```
+
+### Why Authorization Code Flow?
+
+The authorization code flow provides several security benefits:
+
+* **No token exposure**: Access tokens never pass through the browser
+* **Short-lived codes**: Authorization codes expire quickly (typically 10 minutes)
+* **Server verification**: The auth server can verify the client's identity
+* **Refresh capability**: Supports refresh tokens for long-lived access
+
+## The Localhost Callback Pattern
+
+The core innovation of OAuth Callback is making the localhost callback pattern trivially simple to implement. This pattern, standardized in [RFC 8252](https://www.rfc-editor.org/rfc/rfc8252.html), solves a fundamental problem: how can native applications receive OAuth callbacks without a public web server?
+
+### The Problem
+
+Traditional web applications have public URLs where OAuth providers can send callbacks:
+
+```
+https://myapp.com/oauth/callback?code=xyz123
+```
+
+But CLI tools and desktop apps don't have public URLs. They run on the user's machine behind firewalls and NAT.
+
+### The Solution
+
+OAuth Callback creates a temporary HTTP server on localhost that:
+
+1. **Binds locally**: Only accepts connections from `127.0.0.1`
+2. **Uses dynamic ports**: Works with any available port
+3. **Auto-terminates**: Shuts down after receiving the callback
+4. **Handles edge cases**: Timeouts, errors, user cancellation
+
+```typescript
+import open from "open";
+
+// This single function handles all the complexity
+const result = await getAuthCode({ authorizationUrl, launch: open });
+```
+
+## Architecture Overview
+
+OAuth Callback is built on a layered architecture that separates concerns and enables flexibility:
+
+```mermaid
+flowchart TD
+    subgraph "Application Layer"
+        A[Your CLI/Desktop App]
+    end
+
+    subgraph "OAuth Callback Library"
+        B[getAuthCode Function]
+        C[HTTP Server Module]
+        D[Browser Launcher]
+        E[Error Handler]
+        F[Template Engine]
+    end
+
+    subgraph "MCP Integration Layer"
+        G[browserAuth Provider]
+        H[Token Storage]
+        I[Dynamic Client Registration]
+    end
+
+    A --> B
+    B --> C
+    B --> D
+    B --> E
+    B --> F
+    A --> G
+    G --> H
+    G --> I
+```
+
+### Core Components
+
+#### 1. The HTTP Server (`server.ts`)
+
+The heart of OAuth Callback is a lightweight HTTP server that:
+
+* Listens on localhost for the OAuth callback
+* Parses query parameters from the redirect
+* Serves success/error HTML pages
+* Implements proper cleanup on completion
+
+```typescript
+// Internally, the server handles:
+- Request routing (/callback path matching)
+- Query parameter extraction (code, state, error)
+- HTML template rendering with placeholders
+- Graceful shutdown after callback
+```
+
+#### 2. The Authorization Handler (`getAuthCode`)
+
+The main API surface that orchestrates the entire flow:
+
+```typescript
+interface GetAuthCodeOptions {
+  authorizationUrl: string; // OAuth provider URL
+  port?: number; // Server port (default: 3000)
+  timeout?: number; // Timeout in ms (default: 30000)
+  launch?: (url: string) => unknown; // Optional URL launcher
+  signal?: AbortSignal; // For cancellation
+  // ... more options
+}
+```
+
+#### 3. Error Management (`OAuthError`)
+
+Specialized error handling for OAuth-specific failures:
+
+```typescript
+class OAuthError extends Error {
+  error: string; // OAuth error code
+  error_description?: string; // Human-readable description
+  error_uri?: string; // Link to more information
+}
+```
+
+Common OAuth errors are properly typed and handled:
+
+* `access_denied` - User declined authorization
+* `invalid_scope` - Requested scope is invalid
+* `server_error` - Authorization server error
+* `temporarily_unavailable` - Server is overloaded
+
+## Token Management
+
+For applications that need to persist OAuth tokens, OAuth Callback provides a flexible storage abstraction:
+
+### Storage Abstraction
+
+The `TokenStore` interface enables different storage strategies:
+
+```typescript
+interface TokenStore {
+  get(key: string): Promise<Tokens | undefined>;
+  set(key: string, tokens: Tokens): Promise<void>;
+  delete(key: string): Promise<void>;
+}
+```
+
+### Built-in Implementations
+
+#### In-Memory Store
+
+Ephemeral storage for maximum security:
+
+```typescript
+const store = inMemoryStore();
+// Tokens exist only during process lifetime
+// Perfect for CLI tools that authenticate per-session
+```
+
+#### File Store
+
+Persistent storage for convenience:
+
+```typescript
+const store = fileStore("~/.myapp/tokens.json");
+// Tokens persist across sessions
+// Ideal for desktop apps with returning users
+```
+
+### Token Lifecycle
+
+```mermaid
+stateDiagram-v2
+    [*] --> NoToken: Initial State
+    NoToken --> Authorizing: User initiates OAuth
+    Authorizing --> HasToken: Successful auth
+    HasToken --> Authorizing: Token expired
+    HasToken --> NoToken: User logs out
+```
+
+## MCP Integration Pattern
+
+The Model Context Protocol (MCP) integration showcases advanced OAuth patterns:
+
+### Dynamic Client Registration
+
+OAuth Callback supports [RFC 7591](https://www.rfc-editor.org/rfc/rfc7591.html) Dynamic Client Registration, allowing apps to register OAuth clients on-the-fly:
+
+```mermaid
+sequenceDiagram
+    participant App
+    participant OAuth Callback
+    participant Auth Server
+
+    App->>OAuth Callback: browserAuth() (no client_id)
+    OAuth Callback->>Auth Server: POST /register
+    Auth Server->>OAuth Callback: Return client_id, client_secret
+    OAuth Callback->>OAuth Callback: Store credentials
+    OAuth Callback->>Auth Server: Start normal OAuth flow
+```
+
+This eliminates the need for users to manually register OAuth applications.
+
+### The Provider Pattern
+
+The `browserAuth()` function returns an `OAuthClientProvider` that integrates with MCP SDK:
+
+```typescript
+interface OAuthClientProvider {
+  // Called by MCP SDK when authentication is needed
+  authenticate(params: AuthenticationParams): Promise<AuthenticationResult>;
+
+  // Manages token refresh automatically
+  refreshToken?(params: RefreshParams): Promise<RefreshResult>;
+}
+```
+
+## Request/Response Lifecycle
+
+Understanding the complete lifecycle helps when debugging OAuth flows:
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant App
+    participant OAuth Callback
+    participant Browser
+    participant Auth Server
+
+    User->>App: Run command
+    App->>OAuth Callback: getAuthCode(url)
+    OAuth Callback->>OAuth Callback: Start HTTP server
+    OAuth Callback->>Browser: Open auth URL
+    Browser->>Auth Server: GET /authorize
+    Auth Server->>Browser: Login page
+    Browser->>User: Show login
+    User->>Browser: Enter credentials
+    Browser->>Auth Server: POST credentials
+    Auth Server->>Browser: Consent page
+    User->>Browser: Approve access
+    Auth Server->>Browser: Redirect to localhost
+    Browser->>OAuth Callback: GET /callback?code=xyz
+    OAuth Callback->>Browser: Success HTML
+    OAuth Callback->>App: Return {code: "xyz"}
+    OAuth Callback->>OAuth Callback: Shutdown server
+    App->>Auth Server: Exchange code for token
+    Auth Server->>App: Return access token
+```
+
+## State Management
+
+OAuth Callback handles multiple types of state throughout the flow:
+
+### Server State
+
+The HTTP server maintains minimal state:
+
+* **Active**: Server is listening for callbacks
+* **Received**: Callback has been received
+* **Shutdown**: Server is closing
+
+### OAuth State
+
+The OAuth flow tracks:
+
+* **Authorization URL**: Where to send the user
+* **Expected state**: For CSRF validation
+* **Timeout timer**: For abandonment detection
+* **Abort signal**: For cancellation support
+
+### Token State
+
+When using token storage:
+
+* **No tokens**: Need to authenticate
+* **Valid tokens**: Can make API calls
+* **Expired tokens**: Need refresh
+* **Refresh failed**: Need re-authentication
+
+## Security Architecture
+
+Security is built into every layer of OAuth Callback:
+
+### Network Security
+
+```typescript
+// Localhost-only binding
+server.listen(port, "127.0.0.1");
+
+// IPv6 localhost support
+server.listen(port, "::1");
+
+// Reject non-localhost connections
+if (!isLocalhost(request.socket.remoteAddress)) {
+  return reject();
+}
+```
+
+### OAuth Security
+
+* **State parameter**: Prevents CSRF attacks
+* **PKCE support**: Protects authorization codes
+* **Timeout enforcement**: Limits exposure window
+* **Automatic cleanup**: Reduces attack surface
+
+### Token Security
+
+* **Memory storage option**: No persistence
+* **File permissions**: Restrictive when using file store
+* **No logging**: Tokens never logged or exposed
+* **Expiry handling**: Automatic re-auth when tokens expire
+
+## Template System
+
+OAuth Callback includes a simple but powerful template system for success/error pages:
+
+### Placeholder Substitution
+
+Templates support `{{placeholder}}` syntax:
+
+```html
+<h1>Error: {{error_description}}</h1>
+```
+
+Placeholders are automatically escaped to prevent XSS attacks.
+
+### Built-in Templates
+
+The library includes professional templates with:
+
+* Animated success checkmark
+* Clear error messages
+* Responsive design
+* Accessibility features
+
+### Custom Templates
+
+Applications can provide custom HTML:
+
+```typescript
+{
+  successHtml: "<h1>Welcome back!</h1>",
+  errorHtml: "<h1>Oops! {{error}}</h1>"
+}
+```
+
+## Cross-Runtime Compatibility
+
+OAuth Callback achieves cross-runtime compatibility through Web Standards APIs:
+
+### Universal APIs
+
+```typescript
+// Using Web Standards instead of Node.js-specific APIs
+new Request(); // Instead of http.IncomingMessage
+new Response(); // Instead of http.ServerResponse
+new URL(); // Instead of url.parse()
+new URLSearchParams(); // Instead of querystring
+```
+
+### Runtime Detection
+
+The library adapts to the runtime environment:
+
+```typescript
+// Node.js
+import { createServer } from "node:http";
+
+// Deno
+Deno.serve({ port: 3000 });
+
+// Bun
+Bun.serve({ port: 3000 });
+```
+
+## Performance Considerations
+
+OAuth Callback is designed for optimal performance:
+
+### Fast Startup
+
+* Minimal dependencies (only `open` package)
+* Lazy loading of heavy modules
+* Pre-compiled HTML templates
+
+### Efficient Memory Use
+
+* Server resources freed immediately after use
+* No persistent connections
+* Minimal state retention
+
+### Quick Response
+
+* Immediate browser redirect handling
+* Non-blocking I/O operations
+* Parallel browser launch and server start
+
+## Extension Points
+
+While OAuth Callback provides sensible defaults, it offers multiple extension points:
+
+### Custom Storage
+
+Implement the `TokenStore` interface for custom storage:
+
+```typescript
+class RedisStore implements TokenStore {
+  async get(key: string) {
+    /* Redis logic */
+  }
+  async set(key: string, tokens: Tokens) {
+    /* Redis logic */
+  }
+  async delete(key: string) {
+    /* Redis logic */
+  }
+}
+```
+
+### Request Interception
+
+Monitor or modify requests with callbacks:
+
+```typescript
+{
+  onRequest: (req) => {
+    console.log(`OAuth: ${req.method} ${req.url}`);
+    // Add telemetry, logging, etc.
+  };
+}
+```
+
+### Custom URL Launcher
+
+Customize how the authorization URL is opened:
+
+```typescript
+import open from "open";
+
+// Use system browser
+await getAuthCode({ authorizationUrl, launch: open });
+
+// Headless mode - omit launch, print URL manually
+console.log(`Open: ${authorizationUrl}`);
+await getAuthCode({ authorizationUrl });
+```
+
+## Best Practices
+
+### Error Handling
+
+Always handle both OAuth errors and unexpected failures:
+
+```typescript
+try {
+  const result = await getAuthCode(authUrl);
+} catch (error) {
+  if (error instanceof OAuthError) {
+    // Handle OAuth-specific errors
+  } else {
+    // Handle unexpected errors
+  }
+}
+```
+
+### State Validation
+
+Always validate the state parameter:
+
+```typescript
+const state = crypto.randomUUID();
+// Include in auth URL
+const result = await getAuthCode(authUrl);
+if (result.state !== state) throw new Error("CSRF detected");
+```
+
+### Token Storage
+
+Choose storage based on security requirements:
+
+* **CLI tools**: Use `inMemoryStore()` for per-session auth
+* **Desktop apps**: Use `fileStore()` for user convenience
+* **Sensitive apps**: Always use in-memory storage
+
+### Timeout Configuration
+
+Set appropriate timeouts for your use case:
+
+* **Interactive apps**: 30-60 seconds
+* **Automated tools**: 5-10 seconds
+* **First-time setup**: 2-5 minutes
+
+---
+
+---
+url: /oauth-callback/examples.md
+---
+# Examples
+
+---
+
+---
+url: /oauth-callback/api/get-auth-code.md
+description: >-
+  Core function for capturing OAuth authorization codes via localhost callback
+  in CLI tools and desktop applications.
+---
+
+# getAuthCode
+
+The `getAuthCode` function is the primary API for capturing OAuth authorization codes through a localhost callback. It handles the entire OAuth flow: starting a local server, opening the browser, waiting for the callback, and returning the authorization code.
+
+## Function Signature
+
+```typescript
+function getAuthCode(
+  input: string | GetAuthCodeOptions,
+): Promise<CallbackResult>;
+```
+
+## Parameters
+
+The function accepts either:
+
+* A **string** containing the OAuth authorization URL (uses default options)
+* A **GetAuthCodeOptions** object for advanced configuration
+
+### GetAuthCodeOptions
+
+| Property           | Type                       | Default       | Description                                   |
+| ------------------ | -------------------------- | ------------- | --------------------------------------------- |
+| `authorizationUrl` | `string`                   | *required*    | OAuth authorization URL with query parameters |
+| `port`             | `number`                   | `3000`        | Port for the local callback server            |
+| `hostname`         | `string`                   | `"localhost"` | Hostname to bind the server to                |
+| `callbackPath`     | `string`                   | `"/callback"` | URL path for OAuth callback                   |
+| `timeout`          | `number`                   | `30000`       | Timeout in milliseconds                       |
+| `launch`           | `(url: string) => unknown` | *none*        | Optional callback to launch auth URL          |
+| `successHtml`      | `string`                   | *built-in*    | Custom HTML for successful auth               |
+| `errorHtml`        | `string`                   | *built-in*    | Custom HTML template for errors               |
+| `signal`           | `AbortSignal`              | *none*        | For programmatic cancellation                 |
+| `onRequest`        | `(req: Request) => void`   | *none*        | Callback for request logging                  |
+
+## Return Value
+
+Returns a `Promise<CallbackResult>` containing:
+
+```typescript
+interface CallbackResult {
+  code: string; // Authorization code
+  state?: string; // State parameter (if provided)
+  [key: string]: any; // Additional query parameters
+}
+```
+
+## Exceptions
+
+The function can throw:
+
+| Error Type   | Condition            | Description                                                     |
+| ------------ | -------------------- | --------------------------------------------------------------- |
+| `OAuthError` | OAuth provider error | Contains `error`, `error_description`, and optional `error_uri` |
+| `Error`      | Timeout              | "Timeout waiting for callback"                                  |
+| `Error`      | Port in use          | "EADDRINUSE" - port already occupied                            |
+| `Error`      | Cancellation         | "Operation aborted" via AbortSignal                             |
+
+## Basic Usage
+
+### With Browser Launch
+
+The recommended usage with automatic browser opening:
+
+```typescript
+import open from "open";
+import { getAuthCode } from "oauth-callback";
+
+const authUrl =
+  "https://github.com/login/oauth/authorize?" +
+  new URLSearchParams({
+    client_id: "your_client_id",
+    redirect_uri: "http://localhost:3000/callback",
+    scope: "user:email",
+    state: "random_state",
+  });
+
+const result = await getAuthCode({ authorizationUrl: authUrl, launch: open });
+console.log("Authorization code:", result.code);
+console.log("State:", result.state);
+```
+
+### With Configuration Object
+
+Using the options object for more control:
+
+```typescript
+const result = await getAuthCode({
+  authorizationUrl: authUrl,
+  port: 8080,
+  timeout: 60000,
+  hostname: "127.0.0.1",
+});
+```
+
+## Advanced Usage
+
+### Custom Port Configuration
+
+When port 3000 is unavailable or you've registered a different redirect URI:
+
+```typescript
+const result = await getAuthCode({
+  authorizationUrl: "https://oauth.example.com/authorize?...",
+  port: 8888,
+  callbackPath: "/oauth/callback", // Custom path
+  hostname: "127.0.0.1", // Specific IP binding
+});
+```
+
+::: warning Port Configuration
+Ensure the port and path match your OAuth app's registered redirect URI:
+
+* Registered: `http://localhost:8888/oauth/callback`
+* Configuration must use: `port: 8888`, `callbackPath: "/oauth/callback"`
+  :::
+
+### Custom HTML Templates
+
+Provide branded success and error pages:
+
+```typescript
+const result = await getAuthCode({
+  authorizationUrl: authUrl,
+  successHtml: `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <title>Success!</title>
+        <style>
+          body { 
+            font-family: system-ui; 
+            display: flex; 
+            justify-content: center; 
+            align-items: center; 
+            height: 100vh;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+          }
+        </style>
+      </head>
+      <body>
+        <div>
+          <h1>✨ Authorization Successful!</h1>
+          <p>You can close this window and return to the app.</p>
+        </div>
+      </body>
+    </html>
+  `,
+  errorHtml: `
+    <!DOCTYPE html>
+    <html>
+      <body>
+        <h1>Authorization Failed</h1>
+        <p>Error: {{error}}</p>
+        <p>{{error_description}}</p>
+        <a href="{{error_uri}}">More information</a>
+      </body>
+    </html>
+  `,
+});
+```
+
+::: tip Template Placeholders
+Error templates support these placeholders:
+
+* `{{error}}` - OAuth error code
+* `{{error_description}}` - Human-readable description
+* `{{error_uri}}` - Link to error documentation
+  :::
+
+### Request Logging
+
+Monitor OAuth flow for debugging:
+
+```typescript
+const result = await getAuthCode({
+  authorizationUrl: authUrl,
+  onRequest: (req) => {
+    const url = new URL(req.url);
+    console.log(`[${new Date().toISOString()}] ${req.method} ${url.pathname}`);
+
+    // Log specific paths
+    if (url.pathname === "/callback") {
+      console.log(
+        "Callback received with params:",
+        url.searchParams.toString(),
+      );
+    }
+  },
+});
+```
+
+### Timeout Handling
+
+Configure timeout for different scenarios:
+
+```typescript
+try {
+  const result = await getAuthCode({
+    authorizationUrl: authUrl,
+    timeout: 120000, // 2 minutes for first-time users
+  });
+} catch (error) {
+  if (error.message === "Timeout waiting for callback") {
+    console.error("Authorization took too long. Please try again.");
+  }
+}
+```
+
+### Programmatic Cancellation
+
+Support user-initiated cancellation:
+
+```typescript
+const controller = new AbortController();
+
+// Listen for Ctrl+C
+process.on("SIGINT", () => {
+  console.log("\nCancelling authorization...");
+  controller.abort();
+});
+
+// Set a maximum time limit
+const timeoutId = setTimeout(() => {
+  console.log("Authorization time limit reached");
+  controller.abort();
+}, 300000); // 5 minutes
+
+try {
+  const result = await getAuthCode({
+    authorizationUrl: authUrl,
+    signal: controller.signal,
+  });
+
+  clearTimeout(timeoutId);
+  console.log("Success! Code:", result.code);
+} catch (error) {
+  if (error.message === "Operation aborted") {
+    console.log("Authorization was cancelled");
+  }
+}
+```
+
+### Headless / Manual Browser Control
+
+For environments where you want to handle browser opening yourself:
+
+```typescript
+// Headless mode - print URL, let user open manually
+console.log("Please open this URL in your browser:");
+console.log(authUrl);
+
+const result = await getAuthCode({ authorizationUrl: authUrl });
+```
+
+Or use a custom launcher:
+
+```typescript
+import open from "open";
+
+const result = await getAuthCode({
+  authorizationUrl: authUrl,
+  launch: open, // Pass any function that accepts URL
+});
+```
+
+## Error Handling
+
+### Comprehensive Error Handling
+
+Handle all possible error scenarios:
+
+```typescript
+import open from "open";
+import { getAuthCode, OAuthError } from "oauth-callback";
+
+try {
+  const result = await getAuthCode({ authorizationUrl: authUrl, launch: open });
+  // Success - exchange code for token
+  return result.code;
+} catch (error) {
+  if (error instanceof OAuthError) {
+    // OAuth-specific errors from provider
+    switch (error.error) {
+      case "access_denied":
+        console.log("User cancelled authorization");
+        break;
+
+      case "invalid_scope":
+        console.error("Requested scope is invalid:", error.error_description);
+        break;
+
+      case "server_error":
+        console.error("OAuth server error. Please try again later.");
+        break;
+
+      case "temporarily_unavailable":
+        console.error("OAuth service is temporarily unavailable");
+        break;
+
+      default:
+        console.error(`OAuth error: ${error.error}`);
+        if (error.error_description) {
+          console.error(`Details: ${error.error_description}`);
+        }
+        if (error.error_uri) {
+          console.error(`More info: ${error.error_uri}`);
+        }
+    }
+  } else if (error.code === "EADDRINUSE") {
+    console.error(`Port ${port} is already in use. Try a different port.`);
+  } else if (error.message === "Timeout waiting for callback") {
+    console.error("Authorization timed out. Please try again.");
+  } else if (error.message === "Operation aborted") {
+    console.log("Authorization was cancelled by user");
+  } else {
+    // Unexpected errors
+    console.error("Unexpected error:", error);
+  }
+
+  throw error; // Re-throw for upstream handling
+}
+```
+
+### Retry Logic
+
+Implement retry for transient failures:
+
+```typescript
+async function getAuthCodeWithRetry(
+  authUrl: string,
+  maxAttempts = 3,
+): Promise<string> {
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const result = await getAuthCode({
+        authorizationUrl: authUrl,
+        port: 3000 + attempt - 1, // Try different ports
+        timeout: 30000 * attempt, // Increase timeout each attempt
+      });
+      return result.code;
+    } catch (error) {
+      console.log(`Attempt ${attempt} failed:`, error.message);
+
+      if (attempt === maxAttempts) {
+        throw error;
+      }
+
+      // Don't retry user cancellations
+      if (error instanceof OAuthError && error.error === "access_denied") {
+        throw error;
+      }
+
+      console.log(`Retrying... (${attempt + 1}/${maxAttempts})`);
+    }
+  }
+}
+```
+
+## Security Best Practices
+
+### State Parameter Validation
+
+Always validate the state parameter to prevent CSRF attacks:
+
+```typescript
+import { randomBytes } from "crypto";
+
+// Generate secure random state
+const state = randomBytes(32).toString("base64url");
+
+const authUrl = new URL("https://oauth.example.com/authorize");
+authUrl.searchParams.set("client_id", CLIENT_ID);
+authUrl.searchParams.set("redirect_uri", "http://localhost:3000/callback");
+authUrl.searchParams.set("state", state);
+authUrl.searchParams.set("scope", "read write");
+
+const result = await getAuthCode(authUrl.toString());
+
+// Validate state matches
+if (result.state !== state) {
+  throw new Error("State mismatch - possible CSRF attack!");
+}
+
+// Safe to use authorization code
+console.log("Valid authorization code:", result.code);
+```
+
+### PKCE Implementation
+
+Implement Proof Key for Code Exchange for public clients:
+
+```typescript
+import { createHash, randomBytes } from "crypto";
+
+// Generate PKCE challenge
+const verifier = randomBytes(32).toString("base64url");
+const challenge = createHash("sha256").update(verifier).digest("base64url");
+
+// Include challenge in authorization request
+const authUrl = new URL("https://oauth.example.com/authorize");
+authUrl.searchParams.set("code_challenge", challenge);
+authUrl.searchParams.set("code_challenge_method", "S256");
+// ... other parameters
+
+const result = await getAuthCode(authUrl.toString());
+
+// Include verifier when exchanging code
+const tokenResponse = await fetch("https://oauth.example.com/token", {
+  method: "POST",
+  body: new URLSearchParams({
+    grant_type: "authorization_code",
+    code: result.code,
+    code_verifier: verifier, // Include PKCE verifier
+    client_id: CLIENT_ID,
+    redirect_uri: "http://localhost:3000/callback",
+  }),
+});
+```
+
+## Complete Examples
+
+### GitHub OAuth Integration
+
+Full example with error handling and token exchange:
+
+```typescript
+import { getAuthCode, OAuthError } from "oauth-callback";
+
+async function authenticateWithGitHub() {
+  const CLIENT_ID = process.env.GITHUB_CLIENT_ID;
+  const CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET;
+
+  // Build authorization URL with all parameters
+  const authUrl = new URL("https://github.com/login/oauth/authorize");
+  authUrl.searchParams.set("client_id", CLIENT_ID);
+  authUrl.searchParams.set("redirect_uri", "http://localhost:3000/callback");
+  authUrl.searchParams.set("scope", "user:email repo");
+  authUrl.searchParams.set("state", crypto.randomUUID());
+
+  try {
+    // Get authorization code
+    console.log("Opening browser for GitHub authorization...");
+    const result = await getAuthCode({
+      authorizationUrl: authUrl.toString(),
+      timeout: 60000,
+      successHtml: "<h1>✅ GitHub authorization successful!</h1>",
+    });
+
+    // Exchange code for access token
+    console.log("Exchanging code for access token...");
+    const tokenResponse = await fetch(
+      "https://github.com/login/oauth/access_token",
+      {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          client_id: CLIENT_ID,
+          client_secret: CLIENT_SECRET,
+          code: result.code,
+        }),
+      },
+    );
+
+    const tokens = await tokenResponse.json();
+
+    if (tokens.error) {
+      throw new Error(`Token exchange failed: ${tokens.error_description}`);
+    }
+
+    // Use access token to get user info
+    const userResponse = await fetch("https://api.github.com/user", {
+      headers: {
+        Authorization: `Bearer ${tokens.access_token}`,
+        Accept: "application/vnd.github.v3+json",
+      },
+    });
+
+    const user = await userResponse.json();
+    console.log(`Authenticated as: ${user.login}`);
+
+    return tokens.access_token;
+  } catch (error) {
+    if (error instanceof OAuthError) {
+      console.error("GitHub authorization failed:", error.error_description);
+    } else {
+      console.error("Authentication error:", error.message);
+    }
+    throw error;
+  }
+}
+```
+
+### Multi-Provider Support
+
+Handle multiple OAuth providers with a unified interface:
+
+```typescript
+type Provider = "github" | "google" | "microsoft";
+
+async function authenticate(provider: Provider): Promise<string> {
+  const configs = {
+    github: {
+      authUrl: "https://github.com/login/oauth/authorize",
+      tokenUrl: "https://github.com/login/oauth/access_token",
+      scope: "user:email",
+    },
+    google: {
+      authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+      tokenUrl: "https://oauth2.googleapis.com/token",
+      scope: "openid email profile",
+    },
+    microsoft: {
+      authUrl: "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
+      tokenUrl: "https://login.microsoftonline.com/common/oauth2/v2.0/token",
+      scope: "user.read",
+    },
+  };
+
+  const config = configs[provider];
+  const authUrl = new URL(config.authUrl);
+
+  // Add provider-specific parameters
+  authUrl.searchParams.set(
+    "client_id",
+    process.env[`${provider.toUpperCase()}_CLIENT_ID`],
+  );
+  authUrl.searchParams.set("redirect_uri", "http://localhost:3000/callback");
+  authUrl.searchParams.set("scope", config.scope);
+  authUrl.searchParams.set("response_type", "code");
+  authUrl.searchParams.set("state", crypto.randomUUID());
+
+  if (provider === "google") {
+    authUrl.searchParams.set("access_type", "offline");
+    authUrl.searchParams.set("prompt", "consent");
+  }
+
+  const result = await getAuthCode({
+    authorizationUrl: authUrl.toString(),
+    timeout: 90000,
+    onRequest: (req) => {
+      console.log(`[${provider}] ${req.method} ${new URL(req.url).pathname}`);
+    },
+  });
+
+  return result.code;
+}
+```
+
+## Testing
+
+### Unit Testing
+
+Mock the OAuth flow for testing:
+
+```typescript
+import { getAuthCode } from "oauth-callback";
+import { describe, it, expect } from "vitest";
+
+describe("OAuth Flow", () => {
+  it("should capture authorization code", async () => {
+    // Start mock OAuth server
+    const mockServer = createMockOAuthServer();
+    await mockServer.start();
+
+    const result = await getAuthCode({
+      authorizationUrl: `http://localhost:${mockServer.port}/authorize`,
+      port: 3001,
+      // No launch callback - tests simulate OAuth redirect
+      timeout: 5000,
+    });
+
+    expect(result.code).toBe("test_auth_code");
+    expect(result.state).toBe("test_state");
+
+    await mockServer.stop();
+  });
+
+  it("should handle OAuth errors", async () => {
+    const mockServer = createMockOAuthServer({
+      error: "access_denied",
+    });
+    await mockServer.start();
+
+    await expect(
+      getAuthCode({
+        authorizationUrl: `http://localhost:${mockServer.port}/authorize`,
+        // No launch - test simulates OAuth redirect
+      }),
+    ).rejects.toThrow(OAuthError);
+
+    await mockServer.stop();
+  });
+});
+```
+
+## Migration Guide
+
+### From v1.x to v2.x
+
+```typescript
+// v1.x (old)
+const code = await captureAuthCode(url, 3000);
+
+// v2.x (new)
+const result = await getAuthCode({
+  authorizationUrl: url,
+  port: 3000,
+});
+const code = result.code;
+```
+
+## Related APIs
+
+* [`OAuthError`](/api/oauth-error) - OAuth-specific error class
+* [`browserAuth`](/api/browser-auth) - MCP SDK integration provider
+* [`TokenStore`](/api/storage-providers) - Token storage interface
+
+---
+
+---
+url: /oauth-callback/getting-started.md
+description: >-
+  Quick start guide to implement OAuth 2.0 authorization code flow in your CLI
+  tools, desktop apps, and MCP clients using oauth-callback.
+---
+
+# Getting Started {#top}
+
+This guide will walk you through adding OAuth authentication to your application in just a few minutes. Whether you're building a CLI tool, desktop app, or MCP client, **OAuth Callback** handles the complexity of receiving authorization codes via localhost callbacks.
+
+## Prerequisites
+
+Before you begin, ensure you have:
+
+* **Runtime**: Node.js 18+, Deno, or Bun installed
+* **OAuth App**: Registered with your OAuth provider (unless using Dynamic Client Registration)
+* **Redirect URI**: Set to `http://localhost:3000/callback` in your OAuth app settings
+
+## Installation
+
+Install the package using your preferred package manager:
+
+::: code-group
+
+```bash [Bun]
+bun add oauth-callback open
+```
+
+```bash [npm]
+npm install oauth-callback open
+```
+
+```bash [pnpm]
+pnpm add oauth-callback open
+```
+
+```bash [Yarn]
+yarn add oauth-callback open
+```
+
+:::
+
+> **Note:** The `open` package is optional but recommended for launching the browser. Omit it for headless environments.
+
+## Basic Usage
+
+The simplest way to capture an OAuth authorization code is with the `getAuthCode()` function:
+
+```typescript
+import open from "open";
+import { getAuthCode } from "oauth-callback";
+
+// Construct your OAuth authorization URL
+const authUrl =
+  "https://github.com/login/oauth/authorize?" +
+  new URLSearchParams({
+    client_id: "your_client_id",
+    redirect_uri: "http://localhost:3000/callback",
+    scope: "user:email",
+    state: crypto.randomUUID(), // For CSRF protection
+  });
+
+// Get the authorization code (launch: open opens the browser)
+const result = await getAuthCode({ authorizationUrl: authUrl, launch: open });
+
+console.log("Authorization code:", result.code);
+console.log("State:", result.state);
+```
+
+That's it! The library will:
+
+1. Start a local HTTP server on port 3000
+2. Open the user's browser to the authorization URL
+3. Capture the callback with the authorization code
+4. Return the code and automatically shut down the server
+
+## Step-by-Step Implementation
+
+Let's build a complete OAuth flow for a CLI application:
+
+### Step 1: Register Your OAuth Application
+
+First, register your application with your OAuth provider:
+
+::: details GitHub OAuth Setup
+
+1. Go to **Settings** → **Developer settings** → **OAuth Apps**
+2. Click **New OAuth App**
+3. Fill in:
+   * **Application name**: Your app name
+   * **Homepage URL**: Your website or GitHub repo
+   * **Authorization callback URL**: `http://localhost:3000/callback`
+4. Save and copy your **Client ID** and **Client Secret**
+   :::
+
+::: details Google OAuth Setup
+
+1. Go to [Google Cloud Console](https://console.cloud.google.com/)
+2. Create or select a project
+3. Enable the necessary APIs
+4. Go to **APIs & Services** → **Credentials**
+5. Click **Create Credentials** → **OAuth client ID**
+6. Choose **Desktop app** as application type
+7. Add `http://localhost:3000/callback` to authorized redirect URIs
+8. Copy your **Client ID** and **Client Secret**
+   :::
+
+### Step 2: Implement the Authorization Flow
+
+Create a file `auth.ts` with your OAuth implementation:
+
+```typescript
+import open from "open";
+import { getAuthCode, OAuthError } from "oauth-callback";
+
+async function authenticate() {
+  // Generate state for CSRF protection
+  const state = crypto.randomUUID();
+
+  // Build authorization URL
+  const authUrl = new URL("https://github.com/login/oauth/authorize");
+  authUrl.searchParams.set("client_id", process.env.GITHUB_CLIENT_ID!);
+  authUrl.searchParams.set("redirect_uri", "http://localhost:3000/callback");
+  authUrl.searchParams.set("scope", "user:email");
+  authUrl.searchParams.set("state", state);
+
+  try {
+    // Get authorization code
+    console.log("Opening browser for authentication...");
+    const result = await getAuthCode({
+      authorizationUrl: authUrl.toString(),
+      launch: open,
+    });
+
+    // Validate state
+    if (result.state !== state) {
+      throw new Error("State mismatch - possible CSRF attack");
+    }
+
+    console.log("✅ Authorization successful!");
+    return result.code;
+  } catch (error) {
+    if (error instanceof OAuthError) {
+      console.error("❌ OAuth error:", error.error_description || error.error);
+    } else {
+      console.error("❌ Unexpected error:", error);
+    }
+    throw error;
+  }
+}
+```
+
+### Step 3: Exchange Code for Access Token
+
+After getting the authorization code, exchange it for an access token:
+
+```typescript
+async function exchangeCodeForToken(code: string) {
+  const response = await fetch("https://github.com/login/oauth/access_token", {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      client_id: process.env.GITHUB_CLIENT_ID,
+      client_secret: process.env.GITHUB_CLIENT_SECRET,
+      code: code,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Token exchange failed: ${response.statusText}`);
+  }
+
+  const data = await response.json();
+
+  if (data.error) {
+    throw new Error(`OAuth error: ${data.error_description || data.error}`);
+  }
+
+  return data.access_token;
+}
+```
+
+### Step 4: Use the Access Token
+
+Now you can use the access token to make authenticated API requests:
+
+```typescript
+async function getUserInfo(accessToken: string) {
+  const response = await fetch("https://api.github.com/user", {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      Accept: "application/vnd.github.v3+json",
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`API request failed: ${response.statusText}`);
+  }
+
+  return response.json();
+}
+
+// Complete flow
+async function main() {
+  const code = await authenticate();
+  const token = await exchangeCodeForToken(code);
+  const user = await getUserInfo(token);
+
+  console.log(`Hello, ${user.name}! 👋`);
+  console.log(`Email: ${user.email}`);
+}
+
+main().catch(console.error);
+```
+
+## MCP SDK Integration
+
+For Model Context Protocol applications, use the `browserAuth()` provider for seamless integration:
+
+### Quick Setup
+
+```typescript
+import open from "open";
+import { browserAuth, inMemoryStore } from "oauth-callback/mcp";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+
+// Create OAuth provider for MCP
+const authProvider = browserAuth({
+  launch: open,
+  store: inMemoryStore(), // Or fileStore() for persistence
+  scope: "read write",
+});
+
+// Connect to MCP server with OAuth
+const transport = new StreamableHTTPClientTransport(
+  new URL("https://mcp.notion.com/mcp"),
+  { authProvider },
+);
+
+const client = new Client(
+  { name: "my-app", version: "1.0.0" },
+  { capabilities: {} },
+);
+
+await client.connect(transport);
+```
+
+### Token Storage Options
+
+Choose between ephemeral and persistent token storage:
+
+::: code-group
+
+```typescript [Ephemeral (Memory)]
+import { browserAuth, inMemoryStore } from "oauth-callback/mcp";
+
+// Tokens are lost when the process exits
+const authProvider = browserAuth({
+  store: inMemoryStore(),
+});
+```
+
+```typescript [Persistent (File)]
+import { browserAuth, fileStore } from "oauth-callback/mcp";
+
+// Tokens persist across sessions
+const authProvider = browserAuth({
+  store: fileStore(), // Saves to ~/.mcp/tokens.json
+});
+
+// Or specify custom location
+const customAuth = browserAuth({
+  store: fileStore("/path/to/tokens.json"),
+});
+```
+
+:::
+
+### Pre-configured Credentials
+
+If you have pre-registered OAuth credentials:
+
+```typescript
+const authProvider = browserAuth({
+  clientId: "your-client-id",
+  clientSecret: "your-client-secret",
+  scope: "read write",
+  store: fileStore(),
+  storeKey: "my-app", // Namespace for multiple apps
+});
+```
+
+## Advanced Configuration
+
+### Custom Port and Timeout
+
+Configure the callback server port and timeout:
+
+```typescript
+const result = await getAuthCode({
+  authorizationUrl: authUrl,
+  port: 8080, // Use port 8080 instead of 3000
+  timeout: 60000, // 60 second timeout (default: 30s)
+  hostname: "127.0.0.1", // Bind to specific IP
+});
+```
+
+### Custom HTML Templates
+
+Customize the success and error pages shown to users:
+
+```typescript
+const result = await getAuthCode({
+  authorizationUrl: authUrl,
+  successHtml: `
+    <html>
+      <body style="font-family: system-ui; text-align: center; padding: 50px;">
+        <h1>✅ Authorization Successful!</h1>
+        <p>You can now close this window and return to the application.</p>
+      </body>
+    </html>
+  `,
+  errorHtml: `
+    <html>
+      <body style="font-family: system-ui; text-align: center; padding: 50px;">
+        <h1>❌ Authorization Failed</h1>
+        <p>Error: {{error_description}}</p>
+        <p>Please try again or contact support.</p>
+      </body>
+    </html>
+  `,
+});
+```
+
+### Request Logging
+
+Add logging for debugging OAuth flows:
+
+```typescript
+const result = await getAuthCode({
+  authorizationUrl: authUrl,
+  onRequest: (req) => {
+    console.log(`[OAuth] ${req.method} ${req.url}`);
+    console.log("[OAuth] Headers:", Object.fromEntries(req.headers));
+  },
+});
+```
+
+### Programmatic Cancellation
+
+Support user cancellation with AbortSignal:
+
+```typescript
+const controller = new AbortController();
+
+// Cancel after 10 seconds
+setTimeout(() => controller.abort(), 10000);
+
+// Or cancel on user input
+process.on("SIGINT", () => {
+  console.log("\nCancelling OAuth flow...");
+  controller.abort();
+});
+
+try {
+  const result = await getAuthCode({
+    authorizationUrl: authUrl,
+    signal: controller.signal,
+  });
+} catch (error) {
+  if (error.message === "Operation aborted") {
+    console.log("OAuth flow was cancelled");
+  }
+}
+```
+
+## Error Handling
+
+Proper error handling ensures a good user experience:
+
+```typescript
+import open from "open";
+import { getAuthCode, OAuthError } from "oauth-callback";
+
+try {
+  const result = await getAuthCode({ authorizationUrl: authUrl, launch: open });
+  // Success path
+} catch (error) {
+  if (error instanceof OAuthError) {
+    // OAuth-specific errors from the provider
+    switch (error.error) {
+      case "access_denied":
+        console.error("User denied access");
+        break;
+      case "invalid_scope":
+        console.error("Invalid scope requested");
+        break;
+      case "server_error":
+        console.error("Authorization server error");
+        break;
+      default:
+        console.error(`OAuth error: ${error.error_description || error.error}`);
+    }
+  } else if (error.message === "Timeout waiting for callback") {
+    console.error("Authorization timed out - please try again");
+  } else if (error.message === "Operation aborted") {
+    console.error("Authorization was cancelled");
+  } else {
+    console.error("Unexpected error:", error);
+  }
+}
+```
+
+## Security Best Practices
+
+### Always Use State Parameter
+
+Protect against CSRF attacks with a state parameter:
+
+```typescript
+const state = crypto.randomUUID();
+
+const authUrl = `https://example.com/authorize?state=${state}&...`;
+const result = await getAuthCode(authUrl);
+
+if (result.state !== state) {
+  throw new Error("State mismatch - possible CSRF attack");
+}
+```
+
+### Implement PKCE for Public Clients
+
+For enhanced security, implement Proof Key for Code Exchange:
+
+```typescript
+import { createHash, randomBytes } from "node:crypto";
+
+// Generate PKCE challenge
+const verifier = randomBytes(32).toString("base64url");
+const challenge = createHash("sha256").update(verifier).digest("base64url");
+
+// Include in authorization request
+const authUrl = new URL("https://example.com/authorize");
+authUrl.searchParams.set("code_challenge", challenge);
+authUrl.searchParams.set("code_challenge_method", "S256");
+// ... other parameters
+
+const result = await getAuthCode(authUrl.toString());
+
+// Include verifier in token exchange
+const tokenResponse = await fetch(tokenUrl, {
+  method: "POST",
+  body: new URLSearchParams({
+    code: result.code,
+    code_verifier: verifier,
+    // ... other parameters
+  }),
+});
+```
+
+### Secure Token Storage
+
+Choose appropriate token storage based on your security requirements:
+
+* **Use `inMemoryStore()`** for maximum security (tokens lost on restart)
+* **Use `fileStore()`** only when persistence is required
+* **Never commit tokens** to version control
+* **Consider encryption** for file-based storage in production
+
+## Testing Your Implementation
+
+### Local Testing with Demo
+
+Test the library without real OAuth credentials:
+
+```bash
+# Run interactive demo
+bun run example:demo
+
+# The demo includes a mock OAuth server for testing
+```
+
+### Testing with Real Providers
+
+::: code-group
+
+```bash [GitHub]
+# Set credentials in .env file
+GITHUB_CLIENT_ID=your_client_id
+GITHUB_CLIENT_SECRET=your_client_secret
+
+# Run example
+bun run example:github
+```
+
+```bash [Notion MCP]
+# No credentials needed - uses Dynamic Client Registration
+bun run example:notion
+```
+
+:::
+
+## Troubleshooting
+
+### Common Issues and Solutions
+
+::: details Port Already in Use
+If port 3000 is already in use:
+
+```typescript
+const result = await getAuthCode({
+  authorizationUrl: authUrl,
+  port: 8080, // Use a different port
+});
+```
+
+Also update your OAuth app's redirect URI to match.
+:::
+
+::: details Browser Doesn't Open
+If you're in a headless environment or the browser doesn't open:
+
+```typescript
+// Headless mode - print URL for manual opening
+console.log(`Please open: ${authUrl}`);
+const result = await getAuthCode({ authorizationUrl: authUrl });
+```
+
+:::
+
+::: details Firewall Warnings
+On first run, your OS firewall may show a warning. Allow connections for:
+
+* **localhost** only
+* The specific port you're using (default: 3000)
+  :::
+
+::: details Token Refresh Errors
+For MCP apps with token refresh issues:
+
+```typescript
+const authProvider = browserAuth({
+  store: fileStore(), // Use persistent storage
+  authTimeout: 300000, // Increase timeout to 5 minutes
+});
+```
+
+:::
+
+## Getting Help
+
+Need assistance? Here are your options:
+
+* 📝 [GitHub Issues](https://github.com/kriasoft/oauth-callback/issues) - Report bugs or request features
+* 💬 [GitHub Discussions](https://github.com/kriasoft/oauth-callback/discussions) - Ask questions and share ideas
+* 💬 [Discord Community](https://discord.gg/zQQXyqvs5x) - Join our Discord server for real-time help and discussions
+* 📚 [Stack Overflow](https://stackoverflow.com/questions/tagged/oauth-callback) - Search or ask questions with the `oauth-callback` tag
+
+Happy coding! 🚀
+
+---
+
+---
+url: /oauth-callback/examples/linear.md
+description: >-
+  Integrate with Linear's Model Context Protocol server using OAuth Callback for
+  seamless issue tracking and project management automation.
+---
+
+# Linear MCP Example
+
+This example demonstrates how to integrate with Linear's Model Context Protocol (MCP) server using OAuth Callback's `browserAuth()` provider. Linear is a modern issue tracking and project management tool designed for high-performance teams. Through MCP integration, you can programmatically manage issues, projects, cycles, and more.
+
+## Overview
+
+The Linear MCP integration enables powerful project management automation:
+
+* **Issue Management** - Create, update, and track issues programmatically
+* **Project Tracking** - Monitor project progress and milestones
+* **Cycle Management** - Work with sprints and development cycles
+* **Team Collaboration** - Access team data and workflows
+* **Real-time Updates** - Subscribe to changes via MCP resources
+
+## Prerequisites
+
+Before starting with Linear MCP integration:
+
+* **Runtime Environment** - Bun, Node.js 18+, or Deno installed
+* **Linear Account** - Active Linear workspace with API access
+* **OAuth Application** - Linear OAuth app configured (or use DCR if supported)
+* **Port Availability** - Port 3000 (or custom) for OAuth callback
+* **Browser Access** - Default browser for authorization flow
+
+## Installation
+
+Install the required dependencies:
+
+::: code-group
+
+```bash [Bun]
+bun add oauth-callback @modelcontextprotocol/sdk
+```
+
+```bash [npm]
+npm install oauth-callback @modelcontextprotocol/sdk
+```
+
+```bash [pnpm]
+pnpm add oauth-callback @modelcontextprotocol/sdk
+```
+
+:::
+
+## Linear OAuth Setup
+
+### Creating a Linear OAuth Application
+
+1. Navigate to [Linear Settings > API](https://linear.app/settings/api)
+2. Click "Create new OAuth application"
+3. Configure your application:
+   * **Application name**: Your app name
+   * **Redirect URI**: `http://localhost:3000/callback`
+   * **Scopes**: Select required permissions (read, write, admin)
+4. Save your credentials:
+   * Client ID
+   * Client Secret
+
+### Required Scopes
+
+Select scopes based on your needs:
+
+| Scope             | Description                                |
+| ----------------- | ------------------------------------------ |
+| `read`            | Read access to issues, projects, and teams |
+| `write`           | Create and modify issues and comments      |
+| `admin`           | Manage team settings and workflows         |
+| `issues:create`   | Create new issues                          |
+| `issues:update`   | Update existing issues                     |
+| `comments:create` | Add comments to issues                     |
+
+## Basic Implementation
+
+### Simple Linear Connection
+
+Here's a basic example connecting to Linear's MCP server:
+
+```typescript
+import open from "open";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { browserAuth, fileStore } from "oauth-callback/mcp";
+
+async function connectToLinear() {
+  console.log("🚀 Connecting to Linear MCP Server\n");
+
+  // Linear MCP endpoint (hypothetical - check Linear docs)
+  const serverUrl = new URL("https://mcp.linear.app");
+
+  // Create OAuth provider with credentials
+  const authProvider = browserAuth({
+    launch: open,
+    clientId: process.env.LINEAR_CLIENT_ID,
+    clientSecret: process.env.LINEAR_CLIENT_SECRET,
+    scope: "read write issues:create issues:update",
+    port: 3000,
+    store: fileStore("~/.mcp/linear-tokens.json"),
+    onRequest(req) {
+      console.log(`[OAuth] ${new URL(req.url).pathname}`);
+    },
+  });
+
+  try {
+    // Create MCP transport
+    const transport = new StreamableHTTPClientTransport(serverUrl, {
+      authProvider,
+    });
+
+    // Initialize MCP client
+    const client = new Client(
+      { name: "linear-automation", version: "1.0.0" },
+      { capabilities: {} },
+    );
+
+    // Connect to Linear
+    await client.connect(transport);
+    console.log("✅ Connected to Linear MCP!");
+
+    // List available capabilities
+    const tools = await client.listTools();
+    console.log("\n📝 Available tools:", tools);
+
+    await client.close();
+  } catch (error) {
+    console.error("❌ Connection failed:", error);
+  }
+}
+
+connectToLinear();
+```
+
+## OAuth Flow Details
+
+### Authorization Flow Diagram
+
+```mermaid
+sequenceDiagram
+    participant App as Your Application
+    participant OAuth as OAuth Callback
+    participant Browser
+    participant Linear as Linear OAuth
+    participant MCP as Linear MCP
+
+    App->>OAuth: Initialize browserAuth
+    App->>MCP: Connect to Linear MCP
+    MCP-->>App: 401 Unauthorized
+
+    Note over OAuth,Browser: OAuth Authorization
+    OAuth->>Browser: Open Linear OAuth URL
+    Browser->>Linear: Request authorization
+    Linear->>Browser: Show consent screen
+    Browser->>Linear: User approves
+    Linear->>Browser: Redirect to localhost:3000
+    Browser->>OAuth: GET /callback?code=xxx
+    OAuth->>App: Capture auth code
+
+    Note over App,Linear: Token Exchange
+    App->>Linear: POST /oauth/token
+    Linear-->>App: Access & refresh tokens
+    OAuth->>OAuth: Store tokens
+
+    App->>MCP: Reconnect with token
+    MCP-->>App: 200 OK + capabilities
+```
+
+### Configuration Options
+
+Configure the OAuth provider for Linear:
+
+```typescript
+const authProvider = browserAuth({
+  // Browser launch callback
+  launch: open,
+
+  // OAuth credentials
+  clientId: process.env.LINEAR_CLIENT_ID,
+  clientSecret: process.env.LINEAR_CLIENT_SECRET,
+
+  // Required permissions
+  scope: "read write issues:create issues:update comments:create",
+
+  // Server configuration
+  port: 3000,
+  hostname: "localhost",
+  callbackPath: "/callback",
+
+  // Token storage
+  store: fileStore("~/.mcp/linear.json"),
+  storeKey: "linear-production",
+
+  // Timeouts
+  authTimeout: 300000, // 5 minutes
+
+  // Debugging
+  onRequest(req) {
+    const url = new URL(req.url);
+    console.log(`[${new Date().toISOString()}] ${req.method} ${url.pathname}`);
+  },
+});
+```
+
+## Working with Linear MCP
+
+### Issue Management
+
+Create and manage Linear issues through MCP:
+
+```typescript
+// Create a new issue
+const newIssue = await client.callTool("create_issue", {
+  title: "Fix authentication bug",
+  description: "Users unable to login with SSO",
+  teamId: "ENG",
+  priority: 1, // Urgent
+  labelIds: ["bug", "authentication"],
+  assigneeId: "user_123",
+});
+
+console.log("Created issue:", newIssue.identifier);
+
+// Update issue status
+await client.callTool("update_issue", {
+  issueId: newIssue.id,
+  stateId: "in_progress",
+});
+
+// Add a comment
+await client.callTool("add_comment", {
+  issueId: newIssue.id,
+  body: "Started investigation - found root cause in SSO handler",
+});
+
+// Search for issues
+const searchResults = await client.callTool("search_issues", {
+  query: "authentication bug",
+  teamId: "ENG",
+  state: ["todo", "in_progress"],
+  limit: 10,
+});
+```
+
+### Project Management
+
+Work with Linear projects and milestones:
+
+```typescript
+// Get project details
+const project = await client.callTool("get_project", {
+  projectId: "PROJ-123",
+});
+
+// Update project progress
+await client.callTool("update_project", {
+  projectId: "PROJ-123",
+  progress: 0.75, // 75% complete
+  status: "on_track",
+});
+
+// List project issues
+const projectIssues = await client.callTool("list_project_issues", {
+  projectId: "PROJ-123",
+  includeArchived: false,
+});
+
+// Create milestone
+const milestone = await client.callTool("create_milestone", {
+  name: "v2.0 Release",
+  targetDate: "2024-06-01",
+  projectId: "PROJ-123",
+});
+```
+
+### Cycle Management
+
+Manage development cycles (sprints):
+
+```typescript
+// Get current cycle
+const currentCycle = await client.callTool("get_current_cycle", {
+  teamId: "ENG",
+});
+
+// List cycle issues
+const cycleIssues = await client.callTool("list_cycle_issues", {
+  cycleId: currentCycle.id,
+});
+
+// Move issue to next cycle
+await client.callTool("update_issue", {
+  issueId: "ISS-456",
+  cycleId: currentCycle.nextCycle.id,
+});
+
+// Get cycle analytics
+const analytics = await client.callTool("get_cycle_analytics", {
+  cycleId: currentCycle.id,
+});
+
+console.log("Cycle completion:", analytics.completionRate);
+console.log("Issues completed:", analytics.completedCount);
+```
+
+### Resource Subscriptions
+
+Subscribe to Linear resources for real-time updates:
+
+```typescript
+// Subscribe to team updates
+await client.subscribeToResource({
+  uri: "linear://team/ENG",
+});
+
+// Subscribe to project changes
+await client.subscribeToResource({
+  uri: "linear://project/PROJ-123",
+});
+
+// Handle resource updates
+client.on("resource_updated", (resource) => {
+  console.log("Resource updated:", resource.uri);
+
+  if (resource.uri.startsWith("linear://issue/")) {
+    console.log("Issue changed:", resource.data);
+  }
+});
+```
+
+## Advanced Patterns
+
+### Custom Linear Client Class
+
+Create a reusable Linear MCP client:
+
+```typescript
+import open from "open";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { browserAuth, fileStore } from "oauth-callback/mcp";
+
+class LinearMCPClient {
+  private client?: Client;
+  private authProvider: any;
+
+  constructor(options?: {
+    clientId?: string;
+    clientSecret?: string;
+    storePath?: string;
+  }) {
+    this.authProvider = browserAuth({
+      launch: open,
+      clientId: options?.clientId || process.env.LINEAR_CLIENT_ID,
+      clientSecret: options?.clientSecret || process.env.LINEAR_CLIENT_SECRET,
+      scope: "read write issues:create issues:update",
+      store: fileStore(options?.storePath || "~/.mcp/linear.json"),
+      port: 3000,
+      authTimeout: 300000,
+    });
+  }
+
+  async connect(): Promise<void> {
+    const serverUrl = new URL("https://mcp.linear.app");
+
+    const transport = new StreamableHTTPClientTransport(serverUrl, {
+      authProvider: this.authProvider,
+    });
+
+    this.client = new Client(
+      { name: "linear-client", version: "1.0.0" },
+      { capabilities: {} },
+    );
+
+    await this.client.connect(transport);
+    console.log("✅ Connected to Linear MCP");
+  }
+
+  async createIssue(params: {
+    title: string;
+    description?: string;
+    teamId: string;
+    priority?: number;
+    labels?: string[];
+  }): Promise<any> {
+    if (!this.client) throw new Error("Not connected");
+
+    return await this.client.callTool("create_issue", {
+      title: params.title,
+      description: params.description,
+      teamId: params.teamId,
+      priority: params.priority || 3,
+      labelIds: params.labels || [],
+    });
+  }
+
+  async searchIssues(query: string, teamId?: string): Promise<any> {
+    if (!this.client) throw new Error("Not connected");
+
+    return await this.client.callTool("search_issues", {
+      query,
+      teamId,
+      limit: 20,
+    });
+  }
+
+  async updateIssueStatus(issueId: string, status: string): Promise<void> {
+    if (!this.client) throw new Error("Not connected");
+
+    const states = {
+      todo: "state_todo_id",
+      in_progress: "state_in_progress_id",
+      done: "state_done_id",
+      cancelled: "state_cancelled_id",
+    };
+
+    await this.client.callTool("update_issue", {
+      issueId,
+      stateId: states[status] || status,
+    });
+  }
+
+  async addComment(issueId: string, comment: string): Promise<any> {
+    if (!this.client) throw new Error("Not connected");
+
+    return await this.client.callTool("add_comment", {
+      issueId,
+      body: comment,
+    });
+  }
+
+  async disconnect(): Promise<void> {
+    if (this.client) {
+      await this.client.close();
+      this.client = undefined;
+    }
+  }
+}
+
+// Usage
+const linear = new LinearMCPClient();
+await linear.connect();
+
+const issue = await linear.createIssue({
+  title: "Implement OAuth integration",
+  description: "Add OAuth support for third-party services",
+  teamId: "ENG",
+  priority: 2,
+  labels: ["feature", "authentication"],
+});
+
+await linear.updateIssueStatus(issue.id, "in_progress");
+await linear.addComment(issue.id, "Started implementation");
+await linear.disconnect();
+```
+
+### Automation Workflows
+
+Build powerful automations with Linear MCP:
+
+```typescript
+// Auto-triage incoming issues
+async function autoTriageIssues(client: Client) {
+  // Get untriaged issues
+  const untriaged = await client.callTool("search_issues", {
+    query: "no:assignee no:priority",
+    state: ["todo"],
+    limit: 50,
+  });
+
+  for (const issue of untriaged.issues) {
+    // Analyze issue content
+    const keywords =
+      issue.title.toLowerCase() + " " + issue.description.toLowerCase();
+
+    // Auto-assign based on keywords
+    let assignee = null;
+    let priority = 3; // Default: Medium
+
+    if (keywords.includes("crash") || keywords.includes("down")) {
+      priority = 1; // Urgent
+      assignee = "oncall_engineer";
+    } else if (
+      keywords.includes("security") ||
+      keywords.includes("vulnerability")
+    ) {
+      priority = 1;
+      assignee = "security_team";
+    } else if (keywords.includes("performance") || keywords.includes("slow")) {
+      priority = 2; // High
+      assignee = "performance_team";
+    }
+
+    // Update issue
+    await client.callTool("update_issue", {
+      issueId: issue.id,
+      priority,
+      assigneeId: assignee,
+      labelIds: ["auto-triaged"],
+    });
+
+    console.log(
+      `Triaged: ${issue.identifier} -> P${priority} ${assignee || "unassigned"}`,
+    );
+  }
+}
+
+// Sync Linear issues with external systems
+async function syncWithJira(client: Client, jiraClient: any) {
+  // Get recent Linear issues
+  const recentIssues = await client.callTool("search_issues", {
+    createdAfter: new Date(Date.now() - 86400000).toISOString(), // Last 24h
+    limit: 100,
+  });
+
+  for (const issue of recentIssues.issues) {
+    // Check if already synced
+    if (issue.metadata?.jiraKey) continue;
+
+    // Create in Jira
+    const jiraIssue = await jiraClient.createIssue({
+      summary: issue.title,
+      description: issue.description,
+      issueType: "Task",
+      project: "PROJ",
+    });
+
+    // Update Linear with Jira reference
+    await client.callTool("update_issue", {
+      issueId: issue.id,
+      metadata: {
+        jiraKey: jiraIssue.key,
+        syncedAt: new Date().toISOString(),
+      },
+    });
+
+    // Add sync comment
+    await client.callTool("add_comment", {
+      issueId: issue.id,
+      body: `🔄 Synced to Jira: [${jiraIssue.key}](https://jira.example.com/browse/${jiraIssue.key})`,
+    });
+  }
+}
+```
+
+### Batch Operations
+
+Efficiently handle multiple operations:
+
+```typescript
+class LinearBatchProcessor {
+  constructor(private client: Client) {}
+
+  async batchCreateIssues(
+    issues: Array<{
+      title: string;
+      description?: string;
+      teamId: string;
+    }>,
+  ): Promise<any[]> {
+    const results = [];
+
+    // Process in parallel with concurrency limit
+    const batchSize = 5;
+    for (let i = 0; i < issues.length; i += batchSize) {
+      const batch = issues.slice(i, i + batchSize);
+      const promises = batch.map((issue) =>
+        this.client.callTool("create_issue", issue),
+      );
+
+      const batchResults = await Promise.all(promises);
+      results.push(...batchResults);
+
+      console.log(
+        `Created batch ${i / batchSize + 1}: ${batchResults.length} issues`,
+      );
+    }
+
+    return results;
+  }
+
+  async bulkUpdatePriority(
+    issueIds: string[],
+    priority: number,
+  ): Promise<void> {
+    const promises = issueIds.map((id) =>
+      this.client.callTool("update_issue", {
+        issueId: id,
+        priority,
+      }),
+    );
+
+    await Promise.all(promises);
+    console.log(`Updated priority for ${issueIds.length} issues`);
+  }
+
+  async archiveCompletedIssues(
+    teamId: string,
+    olderThanDays = 30,
+  ): Promise<number> {
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - olderThanDays);
+
+    const completed = await this.client.callTool("search_issues", {
+      teamId,
+      state: ["done", "cancelled"],
+      completedBefore: cutoffDate.toISOString(),
+      limit: 100,
+    });
+
+    for (const issue of completed.issues) {
+      await this.client.callTool("archive_issue", {
+        issueId: issue.id,
+      });
+    }
+
+    return completed.issues.length;
+  }
+}
+```
+
+## Error Handling
+
+### Common Error Scenarios
+
+Handle Linear-specific errors gracefully:
+
+```typescript
+async function robustLinearOperation(
+  client: Client,
+  operation: () => Promise<any>,
+) {
+  const maxRetries = 3;
+  let lastError;
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await operation();
+    } catch (error: any) {
+      lastError = error;
+
+      // Handle specific Linear errors
+      if (error.message.includes("RATE_LIMITED")) {
+        // Rate limit - exponential backoff
+        const delay = Math.pow(2, attempt) * 1000;
+        console.log(`Rate limited. Waiting ${delay}ms...`);
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        continue;
+      }
+
+      if (error.message.includes("INVALID_TEAM_ID")) {
+        throw new Error(
+          "Invalid team ID. Check your Linear workspace settings.",
+        );
+      }
+
+      if (error.message.includes("INSUFFICIENT_PERMISSIONS")) {
+        throw new Error(
+          "Missing permissions. Request additional OAuth scopes.",
+        );
+      }
+
+      if (error.message.includes("RESOURCE_NOT_FOUND")) {
+        throw new Error("Linear resource not found. It may have been deleted.");
+      }
+
+      // Network errors - retry
+      if (
+        error.message.includes("ECONNRESET") ||
+        error.message.includes("ETIMEDOUT")
+      ) {
+        console.log(`Network error on attempt ${attempt}. Retrying...`);
+        continue;
+      }
+
+      // Unknown error - don't retry
+      throw error;
+    }
+  }
+
+  throw lastError;
+}
+
+// Usage
+const result = await robustLinearOperation(client, async () => {
+  return await client.callTool("create_issue", {
+    title: "New feature request",
+    teamId: "ENG",
+  });
+});
+```
+
+## Security Best Practices
+
+### Token Management
+
+Secure your Linear OAuth tokens:
+
+```typescript
+import { browserAuth, fileStore } from "oauth-callback/mcp";
+import { createCipheriv, createDecipheriv, randomBytes, scrypt } from "crypto";
+import { promisify } from "util";
+
+// Encrypted token storage
+class EncryptedLinearStore {
+  private key: Buffer;
+  private store = fileStore("~/.mcp/linear-encrypted.json");
+
+  async init(password: string) {
+    const salt = randomBytes(16);
+    this.key = (await promisify(scrypt)(password, salt, 32)) as Buffer;
+  }
+
+  async get(key: string): Promise<any> {
+    const encrypted = await this.store.get(key);
+    if (!encrypted) return null;
+
+    // Decrypt tokens
+    return this.decrypt(encrypted);
+  }
+
+  async set(key: string, tokens: any): Promise<void> {
+    // Encrypt before storing
+    const encrypted = this.encrypt(tokens);
+    await this.store.set(key, encrypted);
+  }
+
+  private encrypt(data: any): string {
+    const iv = randomBytes(16);
+    const cipher = createCipheriv("aes-256-gcm", this.key, iv);
+    // ... encryption logic
+    return encrypted;
+  }
+
+  private decrypt(encrypted: string): any {
+    // ... decryption logic
+    return decrypted;
+  }
+}
+```
+
+### Environment Configuration
+
+Use environment variables for sensitive data:
+
+```bash
+# .env file (never commit!)
+LINEAR_CLIENT_ID=lin_oauth_client_xxx
+LINEAR_CLIENT_SECRET=lin_oauth_secret_xxx
+LINEAR_WORKSPACE_ID=workspace_123
+LINEAR_TEAM_ID=team_eng
+```
+
+```typescript
+// Load configuration
+import open from "open";
+import { config } from "dotenv";
+config();
+
+const authProvider = browserAuth({
+  launch: open,
+  clientId: process.env.LINEAR_CLIENT_ID!,
+  clientSecret: process.env.LINEAR_CLIENT_SECRET!,
+  scope: "read write",
+  store: fileStore(),
+});
+```
+
+## Testing
+
+### Mock Linear MCP Server
+
+Test your integration without hitting Linear's API:
+
+```typescript
+import { createServer } from "http";
+
+class MockLinearMCPServer {
+  private server: any;
+  private issues = new Map();
+
+  async start(port = 4000) {
+    this.server = createServer((req, res) => {
+      // Mock MCP endpoints
+      if (req.url === "/capabilities") {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(
+          JSON.stringify({
+            tools: [
+              { name: "create_issue", description: "Create issue" },
+              { name: "update_issue", description: "Update issue" },
+              { name: "search_issues", description: "Search issues" },
+            ],
+          }),
+        );
+      }
+      // ... other endpoints
+    });
+
+    await new Promise((resolve) => {
+      this.server.listen(port, resolve);
+    });
+  }
+
+  async stop() {
+    await new Promise((resolve) => this.server.close(resolve));
+  }
+}
+
+// Test usage
+describe("Linear MCP Integration", () => {
+  let mockServer: MockLinearMCPServer;
+
+  beforeAll(async () => {
+    mockServer = new MockLinearMCPServer();
+    await mockServer.start();
+  });
+
+  afterAll(async () => {
+    await mockServer.stop();
+  });
+
+  it("should create an issue", async () => {
+    // Test implementation
+  });
+});
+```
+
+## Troubleshooting
+
+### Common Issues
+
+::: details OAuth authorization fails
+
+Check your Linear OAuth app configuration:
+
+```typescript
+// Verify redirect URI matches
+const authProvider = browserAuth({
+  launch: open,
+  clientId: "...",
+  clientSecret: "...",
+  port: 3000, // Must match redirect URI port
+  callbackPath: "/callback", // Must match redirect URI path
+});
+```
+
+:::
+
+::: details Rate limiting errors
+
+Implement rate limit handling:
+
+```typescript
+class RateLimitedClient {
+  private requestCount = 0;
+  private resetTime = Date.now() + 60000;
+
+  async callTool(name: string, params: any) {
+    // Check rate limit
+    if (Date.now() > this.resetTime) {
+      this.requestCount = 0;
+      this.resetTime = Date.now() + 60000;
+    }
+
+    if (this.requestCount >= 100) {
+      const waitTime = this.resetTime - Date.now();
+      await new Promise((resolve) => setTimeout(resolve, waitTime));
+      this.requestCount = 0;
+    }
+
+    this.requestCount++;
+    return await this.client.callTool(name, params);
+  }
+}
+```
+
+:::
+
+::: details Token refresh fails
+
+Handle token refresh errors:
+
+```typescript
+const authProvider = browserAuth({
+  launch: open,
+  store: fileStore(),
+  onTokenRefreshError: async (error) => {
+    console.error("Token refresh failed:", error);
+    // Clear invalid tokens
+    await authProvider.invalidateCredentials("tokens");
+    // Trigger re-authentication
+    throw new Error("Re-authentication required");
+  },
+});
+```
+
+:::
+
+## Related Resources
+
+* [Linear API Documentation](https://developers.linear.app/docs/graphql/working-with-the-graphql-api) - Official Linear API reference
+* [browserAuth API](/api/browser-auth) - OAuth provider documentation
+* [MCP SDK Documentation](https://modelcontextprotocol.io/docs) - Model Context Protocol reference
+
+---
+
+---
+url: /oauth-callback/markdown-examples.md
+---
+# Markdown Extension Examples
+
+This page demonstrates some of the built-in markdown extensions provided by VitePress.
+
+## Syntax Highlighting
+
+VitePress provides Syntax Highlighting powered by [Shiki](https://github.com/shikijs/shiki), with additional features like line-highlighting:
+
+**Input**
+
+````md
+```js{4}
+export default {
+  data () {
+    return {
+      msg: 'Highlighted!'
+    }
+  }
+}
+```
+````
+
+**Output**
+
+```js{4}
+export default {
+  data () {
+    return {
+      msg: 'Highlighted!'
+    }
+  }
+}
+```
+
+## Custom Containers
+
+**Input**
+
+```md
+::: info
+This is an info box.
+:::
+
+::: tip
+This is a tip.
+:::
+
+::: warning
+This is a warning.
+:::
+
+::: danger
+This is a dangerous warning.
+:::
+
+::: details
+This is a details block.
+:::
+```
+
+**Output**
+
+::: info
+This is an info box.
+:::
+
+::: tip
+This is a tip.
+:::
+
+::: warning
+This is a warning.
+:::
+
+::: danger
+This is a dangerous warning.
+:::
+
+::: details
+This is a details block.
+:::
+
+## More
+
+Check out the documentation for the [full list of markdown extensions](https://vitepress.dev/guide/markdown).
+
+---
+
+---
+url: /oauth-callback/examples/notion.md
+description: >-
+  Connect to Notion's Model Context Protocol server using OAuth Callback with
+  Dynamic Client Registration - no pre-configured OAuth app required.
+---
+
+# Notion MCP Example
+
+This example demonstrates how to connect to Notion's Model Context Protocol (MCP) server using OAuth Callback's `browserAuth()` provider with Dynamic Client Registration (DCR). Unlike traditional OAuth flows that require pre-registering an OAuth application, this example shows how to automatically register and authenticate with Notion's authorization server.
+
+## Overview
+
+The Notion MCP integration showcases several advanced features:
+
+* **Dynamic Client Registration (RFC 7591)** - Automatic OAuth client registration
+* **Model Context Protocol Integration** - Seamless MCP SDK authentication
+* **Browser-Based Authorization** - Automatic browser opening for user consent
+* **Token Management** - Automatic token storage and retrieval
+* **Zero Configuration** - No client ID or secret required
+
+## Prerequisites
+
+Before running this example, ensure you have:
+
+* **Bun, Node.js 18+, or Deno** installed
+* **Port 3000** available for the OAuth callback server
+* **Default browser** configured for opening authorization URLs
+* **Internet connection** to reach Notion's servers
+
+## Installation
+
+Install the required dependencies:
+
+::: code-group
+
+```bash [Bun]
+bun add oauth-callback @modelcontextprotocol/sdk
+```
+
+```bash [npm]
+npm install oauth-callback @modelcontextprotocol/sdk
+```
+
+```bash [pnpm]
+pnpm add oauth-callback @modelcontextprotocol/sdk
+```
+
+:::
+
+## Quick Start
+
+### Running the Example
+
+The simplest way to run the Notion MCP example:
+
+```bash
+# Clone the repository
+git clone https://github.com/kriasoft/oauth-callback.git
+cd oauth-callback
+
+# Install dependencies
+bun install
+
+# Run the Notion example
+bun run example:notion
+```
+
+The example will:
+
+1. Start a local OAuth callback server on port 3000
+2. Open your browser to Notion's authorization page
+3. Capture the authorization code after you approve
+4. Exchange the code for access tokens
+5. Connect to Notion's MCP server
+6. Display available tools and resources
+
+## Complete Example Code
+
+Here's the full implementation demonstrating Notion MCP integration:
+
+```typescript
+#!/usr/bin/env bun
+import open from "open";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { browserAuth, inMemoryStore } from "oauth-callback/mcp";
+
+async function connectToNotion() {
+  console.log("🚀 Starting OAuth flow with Notion MCP Server\n");
+
+  const serverUrl = new URL("https://mcp.notion.com/mcp");
+
+  // Create OAuth provider - no client_id or client_secret needed!
+  const authProvider = browserAuth({
+    launch: open,
+    port: 3000,
+    scope: "read write",
+    store: inMemoryStore(), // Use fileStore() for persistence
+    onRequest(req) {
+      const url = new URL(req.url);
+      console.log(`📨 OAuth: ${req.method} ${url.pathname}`);
+    },
+  });
+
+  try {
+    // Create MCP transport with OAuth provider
+    const transport = new StreamableHTTPClientTransport(serverUrl, {
+      authProvider,
+    });
+
+    // Create MCP client
+    const client = new Client(
+      { name: "notion-example", version: "1.0.0" },
+      { capabilities: {} },
+    );
+
+    // Connect triggers OAuth flow if needed
+    await client.connect(transport);
+    console.log("✅ Connected to Notion MCP server!");
+
+    // List available tools
+    const tools = await client.listTools();
+    console.log("\n📝 Available tools:");
+    for (const tool of tools.tools || []) {
+      console.log(`   - ${tool.name}: ${tool.description}`);
+    }
+
+    // List available resources
+    const resources = await client.listResources();
+    console.log("\n📂 Available resources:");
+    for (const resource of resources.resources || []) {
+      console.log(`   - ${resource.uri}: ${resource.name}`);
+    }
+
+    await client.close();
+  } catch (error) {
+    console.error("❌ Connection failed:", error);
+  }
+}
+
+connectToNotion();
+```
+
+## How It Works
+
+### OAuth Flow Sequence
+
+```mermaid
+sequenceDiagram
+    participant App as Your App
+    participant OAuth as OAuth Callback
+    participant Browser
+    participant Notion as Notion Auth
+    participant MCP as Notion MCP
+
+    App->>OAuth: Create browserAuth provider
+    App->>MCP: Connect via transport
+    MCP-->>App: 401 Unauthorized
+
+    Note over App,OAuth: Dynamic Client Registration
+    App->>Notion: POST /oauth/register
+    Notion-->>App: client_id, client_secret
+    OAuth->>OAuth: Store credentials
+
+    Note over OAuth,Browser: Authorization Flow
+    OAuth->>Browser: Open authorization URL
+    Browser->>Notion: User authorizes
+    Notion->>Browser: Redirect to localhost:3000
+    Browser->>OAuth: GET /callback?code=xxx
+    OAuth->>App: Return auth code
+
+    Note over App,MCP: Token Exchange
+    App->>Notion: POST /oauth/token
+    Notion-->>App: access_token, refresh_token
+    OAuth->>OAuth: Store tokens
+
+    App->>MCP: Connect with token
+    MCP-->>App: 200 OK + capabilities
+```
+
+### Dynamic Client Registration
+
+Unlike traditional OAuth, Notion's MCP server supports Dynamic Client Registration (RFC 7591):
+
+1. **No Pre-Registration** - You don't need to manually register an OAuth app
+2. **Automatic Registration** - The client registers itself on first use
+3. **Credential Persistence** - Client credentials are stored for reuse
+4. **Simplified Distribution** - Ship apps without OAuth setup instructions
+
+## Key Features
+
+### Browser-Based Authorization
+
+The `browserAuth()` provider handles the complete OAuth flow:
+
+```typescript
+import open from "open";
+
+const authProvider = browserAuth({
+  launch: open, // Opens browser for authorization
+  port: 3000, // Callback server port
+  scope: "read write", // Requested permissions
+  store: inMemoryStore(), // Token storage
+  onRequest(req) {
+    // Request logging
+    console.log(`OAuth: ${req.url}`);
+  },
+});
+```
+
+### Token Storage Options
+
+Choose between ephemeral and persistent storage:
+
+::: code-group
+
+```typescript [Ephemeral Storage]
+// Tokens lost on restart (more secure)
+const authProvider = browserAuth({
+  launch: open,
+  store: inMemoryStore(),
+});
+```
+
+```typescript [Persistent Storage]
+// Tokens saved to disk (convenient)
+import { fileStore } from "oauth-callback/mcp";
+
+const authProvider = browserAuth({
+  launch: open,
+  store: fileStore(), // Default: ~/.mcp/tokens.json
+});
+```
+
+```typescript [Custom Location]
+// Specify custom file path
+const authProvider = browserAuth({
+  launch: open,
+  store: fileStore("~/my-app/notion-tokens.json"),
+});
+```
+
+:::
+
+### Error Handling
+
+Properly handle authentication failures:
+
+```typescript
+try {
+  await client.connect(transport);
+} catch (error) {
+  if (error.message.includes("Unauthorized")) {
+    console.log("Authorization required - check browser");
+  } else if (error.message.includes("access_denied")) {
+    console.log("User cancelled authorization");
+  } else {
+    console.error("Connection failed:", error);
+  }
+}
+```
+
+## Working with Notion MCP
+
+### Available Tools
+
+Once connected, you can use Notion's MCP tools:
+
+```typescript
+// Search for content
+const searchResults = await client.callTool("search_objects", {
+  query: "meeting notes",
+  limit: 10,
+});
+
+// Create a new page
+const newPage = await client.callTool("create_page", {
+  title: "My New Page",
+  content: "Page content here",
+});
+
+// Update existing content
+const updated = await client.callTool("update_page", {
+  page_id: "page-123",
+  content: "Updated content",
+});
+```
+
+### Available Resources
+
+Access Notion resources through MCP:
+
+```typescript
+// List all resources
+const resources = await client.listResources();
+
+// Read a specific resource
+const pageContent = await client.readResource({
+  uri: "notion://page/page-123",
+});
+
+// Subscribe to changes
+await client.subscribeToResource({
+  uri: "notion://database/db-456",
+});
+```
+
+## Advanced Configuration
+
+### Custom Success Pages
+
+Provide branded callback pages:
+
+```typescript
+const authProvider = browserAuth({
+  successHtml: `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <title>Notion Connected!</title>
+        <style>
+          body {
+            font-family: -apple-system, system-ui, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background: linear-gradient(135deg, #000000 0%, #434343 100%);
+            color: white;
+          }
+        </style>
+      </head>
+      <body>
+        <div>
+          <h1>✨ Connected to Notion!</h1>
+          <p>You can close this window and return to your app.</p>
+        </div>
+      </body>
+    </html>
+  `,
+});
+```
+
+### Request Logging
+
+Debug OAuth flow with detailed logging:
+
+```typescript
+const authProvider = browserAuth({
+  onRequest(req) {
+    const url = new URL(req.url);
+    const timestamp = new Date().toISOString();
+
+    console.log(`[${timestamp}] OAuth Request`);
+    console.log(`  Method: ${req.method}`);
+    console.log(`  Path: ${url.pathname}`);
+
+    if (url.pathname === "/callback") {
+      console.log(`  Code: ${url.searchParams.get("code")}`);
+      console.log(`  State: ${url.searchParams.get("state")}`);
+    }
+  },
+});
+```
+
+### Multi-Account Support
+
+Support multiple Notion accounts:
+
+```typescript
+function createNotionAuth(accountName: string) {
+  return browserAuth({
+    store: fileStore(`~/.mcp/notion-${accountName}.json`),
+    storeKey: `notion-${accountName}`,
+    port: 3000 + Math.floor(Math.random() * 1000), // Random port
+  });
+}
+
+// Use different accounts
+const personalAuth = createNotionAuth("personal");
+const workAuth = createNotionAuth("work");
+```
+
+## Troubleshooting
+
+### Common Issues and Solutions
+
+::: details Browser doesn't open automatically
+
+If you're in a headless environment:
+
+```typescript
+const authProvider = browserAuth({
+  launch: () => {}, // Noop - disable browser opening
+});
+
+// Manually instruct user
+console.log("Please open this URL in your browser:");
+console.log(authorizationUrl);
+```
+
+:::
+
+::: details Port 3000 is already in use
+
+Use a different port for the callback server:
+
+```typescript
+const authProvider = browserAuth({
+  port: 8080, // Use alternative port
+});
+```
+
+:::
+
+::: details Tokens not persisting
+
+Ensure you're using file storage, not in-memory:
+
+```typescript
+import { fileStore } from "oauth-callback/mcp";
+
+const authProvider = browserAuth({
+  store: fileStore(), // ✅ Persistent storage
+  // store: inMemoryStore() // ❌ Lost on restart
+});
+```
+
+:::
+
+::: details Authorization fails repeatedly
+
+Clear stored credentials and try again:
+
+```typescript
+// Clear all stored data
+await authProvider.invalidateCredentials("all");
+
+// Or clear specific data
+await authProvider.invalidateCredentials("tokens");
+await authProvider.invalidateCredentials("client");
+```
+
+:::
+
+## Security Considerations
+
+### Best Practices
+
+1. **Use Ephemeral Storage for Sensitive Data**
+
+   ```typescript
+   // Tokens are never written to disk
+   const authProvider = browserAuth({
+     store: inMemoryStore(),
+   });
+   ```
+
+2. **Validate State Parameter**
+   * The library automatically generates and validates state parameters
+   * Prevents CSRF attacks during authorization
+
+3. **PKCE Protection**
+   * Enabled by default for enhanced security
+   * Prevents authorization code interception
+
+4. **Secure File Permissions**
+   * File storage uses mode 0600 (owner read/write only)
+   * Tokens are protected from other users on the system
+
+### Token Security
+
+::: warning
+Never commit tokens to version control:
+
+```bash
+# Add to .gitignore
+~/.mcp/
+*.json
+tokens.json
+```
+
+:::
+
+## Complete Working Example
+
+For a production-ready implementation with full error handling:
+
+```typescript
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { browserAuth, fileStore } from "oauth-callback/mcp";
+
+class NotionMCPClient {
+  private client?: Client;
+  private authProvider: any;
+
+  constructor() {
+    this.authProvider = browserAuth({
+      port: 3000,
+      scope: "read write",
+      store: fileStore("~/.mcp/notion.json"),
+      authTimeout: 300000, // 5 minutes
+      onRequest: this.logRequest.bind(this),
+    });
+  }
+
+  private logRequest(req: Request) {
+    const url = new URL(req.url);
+    console.log(`[OAuth] ${req.method} ${url.pathname}`);
+  }
+
+  async connect(): Promise<void> {
+    const serverUrl = new URL("https://mcp.notion.com/mcp");
+
+    const transport = new StreamableHTTPClientTransport(serverUrl, {
+      authProvider: this.authProvider,
+    });
+
+    this.client = new Client(
+      { name: "notion-client", version: "1.0.0" },
+      { capabilities: {} },
+    );
+
+    try {
+      await this.client.connect(transport);
+      console.log("✅ Connected to Notion MCP");
+    } catch (error: any) {
+      if (error.message.includes("Unauthorized")) {
+        throw new Error("Authorization required. Please check your browser.");
+      }
+      throw error;
+    }
+  }
+
+  async search(query: string): Promise<any> {
+    if (!this.client) throw new Error("Not connected");
+
+    return await this.client.callTool("search_objects", {
+      query,
+      limit: 10,
+    });
+  }
+
+  async disconnect(): Promise<void> {
+    if (this.client) {
+      await this.client.close();
+      this.client = undefined;
+    }
+  }
+}
+
+// Usage
+async function main() {
+  const notion = new NotionMCPClient();
+
+  try {
+    await notion.connect();
+
+    const results = await notion.search("project roadmap");
+    console.log("Search results:", results);
+
+    await notion.disconnect();
+  } catch (error) {
+    console.error("Error:", error);
+  }
+}
+
+main();
+```
+
+## Related Resources
+
+* [browserAuth API Documentation](/api/browser-auth) - Complete API reference
+* [Storage Providers](/api/storage-providers) - Token storage options
+* [Core Concepts](/core-concepts) - OAuth and MCP architecture
+* [GitHub Example](https://github.com/kriasoft/oauth-callback/blob/main/examples/notion.ts) - Source code
+
+---
+
+---
+url: /oauth-callback/api/oauth-error.md
+description: >-
+  OAuth-specific error class for handling authorization failures and provider
+  errors according to RFC 6749.
+---
+
+# OAuthError
+
+The `OAuthError` class represents OAuth-specific errors that occur during the authorization flow. It extends the standard JavaScript `Error` class and provides structured access to OAuth error details as defined in [RFC 6749 Section 4.1.2.1](https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.2.1).
+
+## Class Definition
+
+```typescript
+class OAuthError extends Error {
+  error: string; // OAuth error code
+  error_description?: string; // Human-readable description
+  error_uri?: string; // URI with more information
+
+  constructor(error: string, description?: string, uri?: string);
+}
+```
+
+## Properties
+
+| Property            | Type                  | Description                                      |
+| ------------------- | --------------------- | ------------------------------------------------ |
+| `name`              | `string`              | Always `"OAuthError"` for instanceof checks      |
+| `error`             | `string`              | OAuth error code (e.g., `"access_denied"`)       |
+| `error_description` | `string \| undefined` | Human-readable error description                 |
+| `error_uri`         | `string \| undefined` | URI with additional error information            |
+| `message`           | `string`              | Inherited from Error (description or error code) |
+| `stack`             | `string`              | Inherited stack trace from Error                 |
+
+## OAuth Error Codes
+
+According to [RFC 6749](https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.2.1) and common provider extensions:
+
+### Standard OAuth 2.0 Error Codes
+
+| Error Code                  | Description                                         | User Action Required        |
+| --------------------------- | --------------------------------------------------- | --------------------------- |
+| `invalid_request`           | Request is missing required parameters or malformed | Fix request parameters      |
+| `unauthorized_client`       | Client not authorized for this grant type           | Check client configuration  |
+| `access_denied`             | User denied the authorization request               | User must approve access    |
+| `unsupported_response_type` | Response type not supported                         | Use supported response type |
+| `invalid_scope`             | Requested scope is invalid or unknown               | Request valid scopes        |
+| `server_error`              | Authorization server error (500)                    | Retry later                 |
+| `temporarily_unavailable`   | Server temporarily overloaded (503)                 | Retry with backoff          |
+
+### Common Provider Extensions
+
+| Error Code                   | Provider         | Description                    |
+| ---------------------------- | ---------------- | ------------------------------ |
+| `consent_required`           | Microsoft        | User consent needed            |
+| `interaction_required`       | Microsoft        | User interaction needed        |
+| `login_required`             | Google/Microsoft | User must authenticate         |
+| `account_selection_required` | Microsoft        | User must select account       |
+| `invalid_client`             | Various          | Client authentication failed   |
+| `invalid_grant`              | Various          | Grant or refresh token invalid |
+
+## Basic Usage
+
+### Catching OAuth Errors
+
+```typescript
+import { getAuthCode, OAuthError } from "oauth-callback";
+
+try {
+  const result = await getAuthCode(authorizationUrl);
+  console.log("Success! Code:", result.code);
+} catch (error) {
+  if (error instanceof OAuthError) {
+    console.error(`OAuth error: ${error.error}`);
+    if (error.error_description) {
+      console.error(`Details: ${error.error_description}`);
+    }
+    if (error.error_uri) {
+      console.error(`More info: ${error.error_uri}`);
+    }
+  } else {
+    // Handle other errors (timeout, network, etc.)
+    console.error("Unexpected error:", error);
+  }
+}
+```
+
+### Type Guard
+
+```typescript
+function isOAuthError(error: unknown): error is OAuthError {
+  return error instanceof OAuthError;
+}
+
+// Usage
+catch (error) {
+  if (isOAuthError(error)) {
+    // TypeScript knows error is OAuthError
+    handleOAuthError(error.error, error.error_description);
+  }
+}
+```
+
+## Error Handling Patterns
+
+### Comprehensive Error Handler
+
+```typescript
+import { OAuthError } from "oauth-callback";
+
+async function handleOAuthFlow(authUrl: string) {
+  try {
+    const result = await getAuthCode(authUrl);
+    return result.code;
+  } catch (error) {
+    if (error instanceof OAuthError) {
+      switch (error.error) {
+        case "access_denied":
+          // User cancelled - this is expected
+          console.log("User cancelled authorization");
+          return null;
+
+        case "invalid_scope":
+          throw new Error(
+            `Invalid permissions requested: ${error.error_description}`,
+          );
+
+        case "server_error":
+        case "temporarily_unavailable":
+          // Retry with exponential backoff
+          console.warn("Server error, retrying...");
+          await delay(1000);
+          return handleOAuthFlow(authUrl);
+
+        case "unauthorized_client":
+          throw new Error(
+            "Application not authorized. Please check OAuth app settings.",
+          );
+
+        default:
+          // Unknown OAuth error
+          throw new Error(
+            `OAuth authorization failed: ${error.error_description || error.error}`,
+          );
+      }
+    }
+
+    // Non-OAuth errors
+    throw error;
+  }
+}
+```
+
+### User-Friendly Error Messages
+
+```typescript
+function getErrorMessage(error: OAuthError): string {
+  const messages: Record<string, string> = {
+    access_denied: "You cancelled the authorization. Please try again when ready.",
+    invalid_scope: "The requested permissions are not available.",
+    server_error: "The authorization server encountered an error. Please try again.",
+    temporarily_unavailable: "The service is temporarily unavailable. Please try again later.",
+    unauthorized_client: "This application is not authorized. Please contact support.",
+    invalid_request: "The authorization request was invalid. Please try again.",
+    consent_required: "Please provide consent to continue.",
+    login_required: "Please log in to continue.",
+    interaction_required: "Additional interaction is required. Please complete the authorization in your browser."
+  };
+
+  return messages[error.error] ||
+    error.error_description ||
+    `Authorization failed: ${error.error}`;
+}
+
+// Usage
+catch (error) {
+  if (error instanceof OAuthError) {
+    const userMessage = getErrorMessage(error);
+    showUserNotification(userMessage);
+  }
+}
+```
+
+### Retry Logic
+
+```typescript
+async function authorizeWithRetry(
+  authUrl: string,
+  maxAttempts = 3,
+): Promise<string> {
+  let lastError: Error | undefined;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const result = await getAuthCode(authUrl);
+      return result.code;
+    } catch (error) {
+      lastError = error as Error;
+
+      if (error instanceof OAuthError) {
+        // Don't retry user-actionable errors
+        if (
+          ["access_denied", "invalid_scope", "unauthorized_client"].includes(
+            error.error,
+          )
+        ) {
+          throw error;
+        }
+
+        // Retry server errors
+        if (["server_error", "temporarily_unavailable"].includes(error.error)) {
+          const delay = Math.min(1000 * Math.pow(2, attempt - 1), 10000);
+          console.warn(`Attempt ${attempt} failed, retrying in ${delay}ms...`);
+          await new Promise((resolve) => setTimeout(resolve, delay));
+          continue;
+        }
+      }
+
+      // Don't retry other errors
+      throw error;
+    }
+  }
+
+  throw lastError || new Error("Authorization failed after retries");
+}
+```
+
+## Error Recovery Strategies
+
+### Graceful Degradation
+
+```typescript
+class OAuthService {
+  private cachedToken?: string;
+
+  async getAccessToken(): Promise<string | null> {
+    try {
+      // Try to get fresh token
+      const code = await getAuthCode(this.authUrl);
+      const token = await this.exchangeCodeForToken(code);
+      this.cachedToken = token;
+      return token;
+    } catch (error) {
+      if (error instanceof OAuthError) {
+        if (error.error === "access_denied") {
+          // User cancelled - try using cached token if available
+          if (this.cachedToken) {
+            console.log("Using cached token after user cancellation");
+            return this.cachedToken;
+          }
+          return null;
+        }
+
+        if (error.error === "temporarily_unavailable" && this.cachedToken) {
+          // Service down - use cached token
+          console.warn("OAuth service unavailable, using cached token");
+          return this.cachedToken;
+        }
+      }
+
+      throw error;
+    }
+  }
+}
+```
+
+### Error Logging
+
+```typescript
+import { OAuthError } from "oauth-callback";
+
+function logOAuthError(error: OAuthError, context: Record<string, any>) {
+  const errorLog = {
+    timestamp: new Date().toISOString(),
+    type: "oauth_error",
+    error_code: error.error,
+    error_description: error.error_description,
+    error_uri: error.error_uri,
+    context,
+    stack: error.stack
+  };
+
+  // Send to logging service
+  if (["server_error", "temporarily_unavailable"].includes(error.error)) {
+    console.error("OAuth provider error:", errorLog);
+    // Report to monitoring service
+    reportToMonitoring(errorLog);
+  } else {
+    console.warn("OAuth user error:", errorLog);
+    // Track user analytics
+    trackUserEvent("oauth_error", { code: error.error });
+  }
+}
+
+// Usage
+catch (error) {
+  if (error instanceof OAuthError) {
+    logOAuthError(error, {
+      provider: "github",
+      client_id: CLIENT_ID,
+      scopes: ["user:email", "repo"]
+    });
+  }
+}
+```
+
+## Testing OAuth Errors
+
+### Unit Testing
+
+```typescript
+import { OAuthError } from "oauth-callback";
+import { describe, it, expect } from "vitest";
+
+describe("OAuthError", () => {
+  it("should create error with all properties", () => {
+    const error = new OAuthError(
+      "invalid_scope",
+      "The requested scope is invalid",
+      "https://example.com/docs/scopes",
+    );
+
+    expect(error).toBeInstanceOf(Error);
+    expect(error).toBeInstanceOf(OAuthError);
+    expect(error.name).toBe("OAuthError");
+    expect(error.error).toBe("invalid_scope");
+    expect(error.error_description).toBe("The requested scope is invalid");
+    expect(error.error_uri).toBe("https://example.com/docs/scopes");
+    expect(error.message).toBe("The requested scope is invalid");
+  });
+
+  it("should use error code as message when description is missing", () => {
+    const error = new OAuthError("access_denied");
+    expect(error.message).toBe("access_denied");
+  });
+});
+```
+
+### Mock OAuth Errors
+
+```typescript
+import { OAuthError } from "oauth-callback";
+
+class MockOAuthProvider {
+  private shouldFail: string | null = null;
+
+  simulateError(errorCode: string) {
+    this.shouldFail = errorCode;
+  }
+
+  async authorize(): Promise<string> {
+    if (this.shouldFail) {
+      throw new OAuthError(
+        this.shouldFail,
+        this.getErrorDescription(this.shouldFail),
+        "https://example.com/oauth/errors",
+      );
+    }
+    return "mock_auth_code";
+  }
+
+  private getErrorDescription(code: string): string {
+    const descriptions: Record<string, string> = {
+      access_denied: "User denied access to the application",
+      invalid_scope: "One or more scopes are invalid",
+      server_error: "Authorization server encountered an error",
+    };
+    return descriptions[code] || "Unknown error";
+  }
+}
+
+// Usage in tests
+describe("OAuth Flow", () => {
+  it("should handle access_denied error", async () => {
+    const provider = new MockOAuthProvider();
+    provider.simulateError("access_denied");
+
+    await expect(provider.authorize()).rejects.toThrow(OAuthError);
+    await expect(provider.authorize()).rejects.toThrow("User denied access");
+  });
+});
+```
+
+## Integration with MCP
+
+When using with the MCP SDK through `browserAuth()`:
+
+```typescript
+import { browserAuth } from "oauth-callback/mcp";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+
+async function connectWithErrorHandling() {
+  const authProvider = browserAuth({
+    store: fileStore(),
+    onRequest: (req) => {
+      // Log OAuth flow for debugging
+      console.log(`OAuth: ${req.url}`);
+    },
+  });
+
+  const client = new Client(
+    { name: "my-app", version: "1.0.0" },
+    { capabilities: {} },
+  );
+
+  try {
+    await client.connect(transport);
+  } catch (error) {
+    // OAuth errors from browserAuth are wrapped
+    if (error.message?.includes("OAuthError")) {
+      // Extract OAuth error details
+      const match = error.message.match(/OAuthError: (\w+)/);
+      if (match) {
+        const errorCode = match[1];
+        console.error(`OAuth failed with code: ${errorCode}`);
+
+        if (errorCode === "access_denied") {
+          console.log("User cancelled MCP authorization");
+          return null;
+        }
+      }
+    }
+    throw error;
+  }
+}
+```
+
+## Error Flow Diagram
+
+```mermaid
+flowchart TD
+    Start([User initiates OAuth]) --> Auth[Open authorization URL]
+    Auth --> Decision{User action}
+
+    Decision -->|Approves| Success[Return code]
+    Decision -->|Denies| Denied[OAuthError: access_denied]
+    Decision -->|Invalid scope| Scope[OAuthError: invalid_scope]
+    Decision -->|Timeout| Timeout[TimeoutError]
+
+    Auth --> ServerCheck{Server status}
+    ServerCheck -->|Error 500| ServerErr[OAuthError: server_error]
+    ServerCheck -->|Error 503| Unavailable[OAuthError: temporarily_unavailable]
+    ServerCheck -->|Invalid client| Unauthorized[OAuthError: unauthorized_client]
+
+    Denied --> Handle[Error Handler]
+    Scope --> Handle
+    ServerErr --> Retry{Retry?}
+    Unavailable --> Retry
+    Unauthorized --> Handle
+    Timeout --> Handle
+
+    Retry -->|Yes| Auth
+    Retry -->|No| Handle
+
+    Handle --> UserMessage[Show user message]
+    Success --> Complete([Complete])
+
+    style Denied fill:#f96
+    style Scope fill:#f96
+    style ServerErr fill:#fa6
+    style Unavailable fill:#fa6
+    style Unauthorized fill:#f96
+    style Timeout fill:#f96
+    style Success fill:#6f9
+```
+
+## Best Practices
+
+### 1. Always Check Error Type
+
+```typescript
+catch (error) {
+  if (error instanceof OAuthError) {
+    // Handle OAuth-specific errors
+  } else if (error.message === "Timeout waiting for callback") {
+    // Handle timeout
+  } else {
+    // Handle unexpected errors
+  }
+}
+```
+
+### 2. Log Errors Appropriately
+
+```typescript
+if (error instanceof OAuthError) {
+  if (error.error === "access_denied") {
+    // User action - info level
+    console.info("User cancelled OAuth flow");
+  } else if (
+    ["server_error", "temporarily_unavailable"].includes(error.error)
+  ) {
+    // Provider issue - error level
+    console.error("OAuth provider error:", error);
+  } else {
+    // Configuration issue - warning level
+    console.warn("OAuth configuration error:", error);
+  }
+}
+```
+
+### 3. Provide Clear User Feedback
+
+```typescript
+function getUserMessage(error: OAuthError): string {
+  // Prefer provider's description if available
+  if (error.error_description) {
+    return error.error_description;
+  }
+
+  // Fall back to generic messages
+  return userFriendlyMessages[error.error] || "Authorization failed";
+}
+```
+
+### 4. Handle Errors at the Right Level
+
+```typescript
+// Low level - preserve error details
+async function getOAuthCode(url: string) {
+  const result = await getAuthCode(url);
+  // Let OAuthError propagate up
+  return result.code;
+}
+
+// High level - translate to user actions
+async function authenticateUser() {
+  try {
+    const code = await getOAuthCode(authUrl);
+    return { success: true, code };
+  } catch (error) {
+    if (error instanceof OAuthError && error.error === "access_denied") {
+      return { success: false, cancelled: true };
+    }
+    return { success: false, error: error.message };
+  }
+}
+```
+
+## Related APIs
+
+* [`getAuthCode`](/api/get-auth-code) - Main function that throws OAuthError
+* [`browserAuth`](/api/browser-auth) - MCP provider that handles OAuth errors
+* [`TimeoutError`](#timeouterror) - Related timeout error class
+
+## TimeoutError
+
+The library also exports a `TimeoutError` class for timeout-specific failures:
+
+```typescript
+class TimeoutError extends Error {
+  name: "TimeoutError";
+  constructor(message?: string);
+}
+```
+
+Usage:
+
+```typescript
+catch (error) {
+  if (error instanceof TimeoutError) {
+    console.error("OAuth flow timed out");
+    // Suggest user tries again
+  }
+}
+```
+
+---
+
+---
+url: /oauth-callback/api-examples.md
+---
+
+# Runtime API Examples
+
+This page demonstrates usage of some of the runtime APIs provided by VitePress.
+
+The main `useData()` API can be used to access site, theme, and page data for the current page. It works in both `.md` and `.vue` files:
+
+```md
+<script setup>
+import { useData } from 'vitepress'
+
+const { theme, page, frontmatter } = useData()
+</script>
+
+## Results
+
+### Theme Data
+
+<pre>{{ theme }}</pre>
+
+### Page Data
+
+<pre>{{ page }}</pre>
+
+### Page Frontmatter
+
+<pre>{{ frontmatter }}</pre>
+```
+
+## Results
+
+### Theme Data
+
+### Page Data
+
+### Page Frontmatter
+
+## More
+
+Check out the documentation for the [full list of runtime APIs](https://vitepress.dev/reference/runtime-api#usedata).
+
+---
+
+---
+url: /oauth-callback/api/storage-providers.md
+description: >-
+  Token storage interfaces and implementations for persisting OAuth tokens,
+  client credentials, and session state.
+---
+
+# Storage Providers
+
+Storage providers in OAuth Callback manage the persistence of OAuth tokens, client credentials, and session state. The library provides flexible storage interfaces with built-in implementations for both ephemeral and persistent storage, plus the ability to create custom storage backends.
+
+## Storage Interfaces
+
+OAuth Callback defines two storage interfaces for different levels of OAuth state management:
+
+### TokenStore Interface
+
+The basic `TokenStore` interface handles OAuth token persistence:
+
+```typescript
+interface TokenStore {
+  get(key: string): Promise<Tokens | null>;
+  set(key: string, tokens: Tokens): Promise<void>;
+  delete(key: string): Promise<void>;
+  clear(): Promise<void>;
+}
+```
+
+#### Tokens Type
+
+```typescript
+interface Tokens {
+  accessToken: string; // OAuth access token
+  refreshToken?: string; // Optional refresh token
+  expiresAt?: number; // Absolute expiry time (Unix ms)
+  scope?: string; // Space-delimited granted scopes
+}
+```
+
+### OAuthStore Interface
+
+The extended `OAuthStore` interface adds support for Dynamic Client Registration and session state:
+
+```typescript
+interface OAuthStore extends TokenStore {
+  getClient(key: string): Promise<ClientInfo | null>;
+  setClient(key: string, client: ClientInfo): Promise<void>;
+  getSession(key: string): Promise<OAuthSession | null>;
+  setSession(key: string, session: OAuthSession): Promise<void>;
+}
+```
+
+#### ClientInfo Type
+
+```typescript
+interface ClientInfo {
+  clientId: string; // OAuth client ID
+  clientSecret?: string; // OAuth client secret
+  clientIdIssuedAt?: number; // When client was registered
+  clientSecretExpiresAt?: number; // When secret expires
+}
+```
+
+#### OAuthSession Type
+
+```typescript
+interface OAuthSession {
+  codeVerifier?: string; // PKCE code verifier
+  state?: string; // OAuth state parameter
+}
+```
+
+## Built-in Storage Providers
+
+### inMemoryStore()
+
+Ephemeral storage that keeps tokens in memory. Tokens are lost when the process exits.
+
+```typescript
+function inMemoryStore(): TokenStore;
+```
+
+#### Usage
+
+```typescript
+import { browserAuth, inMemoryStore } from "oauth-callback/mcp";
+
+const authProvider = browserAuth({
+  store: inMemoryStore(),
+});
+```
+
+#### Characteristics
+
+| Feature         | Description                                |
+| --------------- | ------------------------------------------ |
+| **Persistence** | None - data lost on process exit           |
+| **Concurrency** | Thread-safe within process                 |
+| **Security**    | Maximum - no disk persistence              |
+| **Performance** | Fastest - no I/O operations                |
+| **Use Cases**   | Development, testing, short-lived sessions |
+
+#### Implementation Details
+
+```typescript
+// Internal implementation uses a Map
+const store = new Map<string, Tokens>();
+
+// All operations are synchronous but return Promises
+// for interface consistency
+```
+
+### fileStore()
+
+Persistent storage that saves tokens to a JSON file on disk.
+
+```typescript
+function fileStore(filepath?: string): TokenStore;
+```
+
+#### Parameters
+
+| Parameter  | Type     | Default              | Description                        |
+| ---------- | -------- | -------------------- | ---------------------------------- |
+| `filepath` | `string` | `~/.mcp/tokens.json` | Custom file path for token storage |
+
+#### Usage
+
+```typescript
+import { browserAuth, fileStore } from "oauth-callback/mcp";
+
+// Use default location (~/.mcp/tokens.json)
+const authProvider = browserAuth({
+  store: fileStore(),
+});
+
+// Use custom location
+const customAuth = browserAuth({
+  store: fileStore("/path/to/my-tokens.json"),
+});
+
+// Environment-specific storage
+const envAuth = browserAuth({
+  store: fileStore(`~/.myapp/${process.env.NODE_ENV}-tokens.json`),
+});
+```
+
+#### Characteristics
+
+| Feature         | Description                         |
+| --------------- | ----------------------------------- |
+| **Persistence** | Survives process restarts           |
+| **Concurrency** | ⚠️ Not safe across processes        |
+| **Security**    | File permissions (mode 0600)        |
+| **Performance** | File I/O on each operation          |
+| **Use Cases**   | Desktop apps, long-running services |
+
+#### File Format
+
+The file store saves tokens in JSON format:
+
+```json
+{
+  "mcp-tokens": {
+    "accessToken": "eyJhbGciOiJSUzI1NiIs...",
+    "refreshToken": "refresh_token_here",
+    "expiresAt": 1735689600000,
+    "scope": "read write"
+  },
+  "app-specific-key": {
+    "accessToken": "another_token",
+    "expiresAt": 1735693200000
+  }
+}
+```
+
+::: warning Concurrent Access
+The file store is not safe for concurrent access across multiple processes. If you need multi-process support, implement a custom storage provider with proper locking mechanisms.
+:::
+
+## Storage Key Management
+
+Storage keys namespace tokens for different applications or environments:
+
+### Single Application
+
+```typescript
+const authProvider = browserAuth({
+  store: fileStore(),
+  storeKey: "my-app", // Default: "mcp-tokens"
+});
+```
+
+### Multiple Applications
+
+```typescript
+// App 1
+const app1Auth = browserAuth({
+  store: fileStore(),
+  storeKey: "app1-tokens",
+});
+
+// App 2 (same file, different key)
+const app2Auth = browserAuth({
+  store: fileStore(),
+  storeKey: "app2-tokens",
+});
+```
+
+### Environment Separation
+
+```typescript
+const authProvider = browserAuth({
+  store: fileStore(),
+  storeKey: `${process.env.APP_NAME}-${process.env.NODE_ENV}`,
+});
+// Results in keys like: "myapp-dev", "myapp-staging", "myapp-prod"
+```
+
+## Custom Storage Implementations
+
+Create custom storage providers by implementing the `TokenStore` or `OAuthStore` interface:
+
+### Basic Custom Storage
+
+#### Redis Storage Example
+
+```typescript
+import { TokenStore, Tokens } from "oauth-callback/mcp";
+import Redis from "ioredis";
+
+class RedisTokenStore implements TokenStore {
+  private redis: Redis;
+  private prefix: string;
+
+  constructor(redis: Redis, prefix = "oauth:") {
+    this.redis = redis;
+    this.prefix = prefix;
+  }
+
+  async get(key: string): Promise<Tokens | null> {
+    const data = await this.redis.get(this.prefix + key);
+    return data ? JSON.parse(data) : null;
+  }
+
+  async set(key: string, tokens: Tokens): Promise<void> {
+    const ttl = tokens.expiresAt
+      ? Math.floor((tokens.expiresAt - Date.now()) / 1000)
+      : undefined;
+
+    if (ttl && ttl > 0) {
+      await this.redis.setex(this.prefix + key, ttl, JSON.stringify(tokens));
+    } else {
+      await this.redis.set(this.prefix + key, JSON.stringify(tokens));
+    }
+  }
+
+  async delete(key: string): Promise<void> {
+    await this.redis.del(this.prefix + key);
+  }
+
+  async clear(): Promise<void> {
+    const keys = await this.redis.keys(this.prefix + "*");
+    if (keys.length > 0) {
+      await this.redis.del(...keys);
+    }
+  }
+}
+
+// Usage
+const redis = new Redis();
+const authProvider = browserAuth({
+  store: new RedisTokenStore(redis),
+});
+```
+
+#### SQLite Storage Example
+
+```typescript
+import { TokenStore, Tokens } from "oauth-callback/mcp";
+import Database from "better-sqlite3";
+
+class SQLiteTokenStore implements TokenStore {
+  private db: Database.Database;
+
+  constructor(dbPath = "./tokens.db") {
+    this.db = new Database(dbPath);
+    this.init();
+  }
+
+  private init() {
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS tokens (
+        key TEXT PRIMARY KEY,
+        access_token TEXT NOT NULL,
+        refresh_token TEXT,
+        expires_at INTEGER,
+        scope TEXT,
+        updated_at INTEGER DEFAULT (unixepoch())
+      )
+    `);
+  }
+
+  async get(key: string): Promise<Tokens | null> {
+    const row = this.db.prepare("SELECT * FROM tokens WHERE key = ?").get(key);
+
+    if (!row) return null;
+
+    return {
+      accessToken: row.access_token,
+      refreshToken: row.refresh_token,
+      expiresAt: row.expires_at,
+      scope: row.scope,
+    };
+  }
+
+  async set(key: string, tokens: Tokens): Promise<void> {
+    this.db
+      .prepare(
+        `
+      INSERT OR REPLACE INTO tokens 
+      (key, access_token, refresh_token, expires_at, scope)
+      VALUES (?, ?, ?, ?, ?)
+    `,
+      )
+      .run(
+        key,
+        tokens.accessToken,
+        tokens.refreshToken,
+        tokens.expiresAt,
+        tokens.scope,
+      );
+  }
+
+  async delete(key: string): Promise<void> {
+    this.db.prepare("DELETE FROM tokens WHERE key = ?").run(key);
+  }
+
+  async clear(): Promise<void> {
+    this.db.prepare("DELETE FROM tokens").run();
+  }
+}
+
+// Usage
+const authProvider = browserAuth({
+  store: new SQLiteTokenStore("./oauth-tokens.db"),
+});
+```
+
+### Advanced Custom Storage
+
+#### Full OAuthStore Implementation
+
+```typescript
+import {
+  OAuthStore,
+  Tokens,
+  ClientInfo,
+  OAuthSession,
+} from "oauth-callback/mcp";
+import { MongoClient, Db } from "mongodb";
+
+class MongoOAuthStore implements OAuthStore {
+  private db: Db;
+
+  constructor(db: Db) {
+    this.db = db;
+  }
+
+  // TokenStore methods
+  async get(key: string): Promise<Tokens | null> {
+    const doc = await this.db.collection("tokens").findOne({ _id: key });
+
+    return doc
+      ? {
+          accessToken: doc.accessToken,
+          refreshToken: doc.refreshToken,
+          expiresAt: doc.expiresAt,
+          scope: doc.scope,
+        }
+      : null;
+  }
+
+  async set(key: string, tokens: Tokens): Promise<void> {
+    await this.db
+      .collection("tokens")
+      .replaceOne(
+        { _id: key },
+        { _id: key, ...tokens, updatedAt: new Date() },
+        { upsert: true },
+      );
+  }
+
+  async delete(key: string): Promise<void> {
+    await this.db.collection("tokens").deleteOne({ _id: key });
+  }
+
+  async clear(): Promise<void> {
+    await this.db.collection("tokens").deleteMany({});
+  }
+
+  // OAuthStore additional methods
+  async getClient(key: string): Promise<ClientInfo | null> {
+    const doc = await this.db.collection("clients").findOne({ _id: key });
+
+    return doc
+      ? {
+          clientId: doc.clientId,
+          clientSecret: doc.clientSecret,
+          clientIdIssuedAt: doc.clientIdIssuedAt,
+          clientSecretExpiresAt: doc.clientSecretExpiresAt,
+        }
+      : null;
+  }
+
+  async setClient(key: string, client: ClientInfo): Promise<void> {
+    await this.db
+      .collection("clients")
+      .replaceOne(
+        { _id: key },
+        { _id: key, ...client, updatedAt: new Date() },
+        { upsert: true },
+      );
+  }
+
+  async getSession(key: string): Promise<OAuthSession | null> {
+    const doc = await this.db.collection("sessions").findOne({ _id: key });
+
+    return doc
+      ? {
+          codeVerifier: doc.codeVerifier,
+          state: doc.state,
+        }
+      : null;
+  }
+
+  async setSession(key: string, session: OAuthSession): Promise<void> {
+    await this.db
+      .collection("sessions")
+      .replaceOne(
+        { _id: key },
+        { _id: key, ...session, updatedAt: new Date() },
+        { upsert: true },
+      );
+  }
+}
+
+// Usage
+const client = new MongoClient("mongodb://localhost:27017");
+await client.connect();
+const db = client.db("oauth");
+
+const authProvider = browserAuth({
+  store: new MongoOAuthStore(db),
+});
+```
+
+## Storage Security
+
+### Encryption at Rest
+
+Implement encryption for sensitive token storage:
+
+```typescript
+import { TokenStore, Tokens } from "oauth-callback/mcp";
+import { createCipheriv, createDecipheriv, randomBytes, scrypt } from "crypto";
+import { promisify } from "util";
+
+class EncryptedTokenStore implements TokenStore {
+  private store: TokenStore;
+  private key: Buffer;
+
+  constructor(store: TokenStore, password: string) {
+    this.store = store;
+  }
+
+  async init(password: string) {
+    // Derive key from password
+    const salt = randomBytes(16);
+    this.key = (await promisify(scrypt)(password, salt, 32)) as Buffer;
+  }
+
+  private encrypt(data: string): string {
+    const iv = randomBytes(16);
+    const cipher = createCipheriv("aes-256-gcm", this.key, iv);
+
+    let encrypted = cipher.update(data, "utf8", "hex");
+    encrypted += cipher.final("hex");
+
+    const authTag = cipher.getAuthTag();
+
+    return JSON.stringify({
+      iv: iv.toString("hex"),
+      authTag: authTag.toString("hex"),
+      encrypted,
+    });
+  }
+
+  private decrypt(encryptedData: string): string {
+    const { iv, authTag, encrypted } = JSON.parse(encryptedData);
+
+    const decipher = createDecipheriv(
+      "aes-256-gcm",
+      this.key,
+      Buffer.from(iv, "hex"),
+    );
+
+    decipher.setAuthTag(Buffer.from(authTag, "hex"));
+
+    let decrypted = decipher.update(encrypted, "hex", "utf8");
+    decrypted += decipher.final("utf8");
+
+    return decrypted;
+  }
+
+  async get(key: string): Promise<Tokens | null> {
+    const encrypted = await this.store.get(key);
+    if (!encrypted) return null;
+
+    try {
+      const decrypted = this.decrypt(JSON.stringify(encrypted));
+      return JSON.parse(decrypted);
+    } catch {
+      return null; // Decryption failed
+    }
+  }
+
+  async set(key: string, tokens: Tokens): Promise<void> {
+    const encrypted = this.encrypt(JSON.stringify(tokens));
+    await this.store.set(key, JSON.parse(encrypted));
+  }
+
+  async delete(key: string): Promise<void> {
+    await this.store.delete(key);
+  }
+
+  async clear(): Promise<void> {
+    await this.store.clear();
+  }
+}
+
+// Usage
+const encryptedStore = new EncryptedTokenStore(
+  fileStore(),
+  process.env.ENCRYPTION_PASSWORD!,
+);
+await encryptedStore.init(process.env.ENCRYPTION_PASSWORD!);
+
+const authProvider = browserAuth({
+  store: encryptedStore,
+});
+```
+
+### Secure File Permissions
+
+When using file storage, ensure proper permissions:
+
+```typescript
+import { chmod } from "fs/promises";
+
+class SecureFileStore implements TokenStore {
+  private store: TokenStore;
+  private filepath: string;
+
+  constructor(filepath: string) {
+    this.filepath = filepath;
+    this.store = fileStore(filepath);
+  }
+
+  async set(key: string, tokens: Tokens): Promise<void> {
+    await this.store.set(key, tokens);
+    // Ensure file is only readable by owner
+    await chmod(this.filepath, 0o600);
+  }
+
+  // ... other methods delegate to store
+}
+```
+
+## Storage Patterns
+
+### Multi-Tenant Storage
+
+Support multiple tenants with isolated storage:
+
+```typescript
+class TenantAwareStore implements TokenStore {
+  private stores = new Map<string, TokenStore>();
+
+  getStore(tenantId: string): TokenStore {
+    if (!this.stores.has(tenantId)) {
+      this.stores.set(tenantId, fileStore(`~/.oauth/${tenantId}/tokens.json`));
+    }
+    return this.stores.get(tenantId)!;
+  }
+
+  async get(key: string): Promise<Tokens | null> {
+    const [tenantId, tokenKey] = key.split(":");
+    return this.getStore(tenantId).get(tokenKey);
+  }
+
+  async set(key: string, tokens: Tokens): Promise<void> {
+    const [tenantId, tokenKey] = key.split(":");
+    return this.getStore(tenantId).set(tokenKey, tokens);
+  }
+
+  // ... other methods
+}
+
+// Usage
+const authProvider = browserAuth({
+  store: new TenantAwareStore(),
+  storeKey: `${tenantId}:${appName}`,
+});
+```
+
+### Cached Storage
+
+Add caching layer for performance:
+
+```typescript
+class CachedTokenStore implements TokenStore {
+  private cache = new Map<string, { tokens: Tokens; expires: number }>();
+  private store: TokenStore;
+  private ttl: number;
+
+  constructor(store: TokenStore, ttlSeconds = 300) {
+    this.store = store;
+    this.ttl = ttlSeconds * 1000;
+  }
+
+  async get(key: string): Promise<Tokens | null> {
+    // Check cache first
+    const cached = this.cache.get(key);
+    if (cached && Date.now() < cached.expires) {
+      return cached.tokens;
+    }
+
+    // Load from store
+    const tokens = await this.store.get(key);
+    if (tokens) {
+      this.cache.set(key, {
+        tokens,
+        expires: Date.now() + this.ttl,
+      });
+    }
+
+    return tokens;
+  }
+
+  async set(key: string, tokens: Tokens): Promise<void> {
+    // Update both cache and store
+    this.cache.set(key, {
+      tokens,
+      expires: Date.now() + this.ttl,
+    });
+    await this.store.set(key, tokens);
+  }
+
+  async delete(key: string): Promise<void> {
+    this.cache.delete(key);
+    await this.store.delete(key);
+  }
+
+  async clear(): Promise<void> {
+    this.cache.clear();
+    await this.store.clear();
+  }
+}
+
+// Usage
+const authProvider = browserAuth({
+  store: new CachedTokenStore(fileStore(), 600), // 10 min cache
+});
+```
+
+## Testing Storage Providers
+
+### Mock Storage for Tests
+
+```typescript
+import { TokenStore, Tokens } from "oauth-callback/mcp";
+
+class MockTokenStore implements TokenStore {
+  private data = new Map<string, Tokens>();
+  public getCalls: string[] = [];
+  public setCalls: Array<{ key: string; tokens: Tokens }> = [];
+
+  async get(key: string): Promise<Tokens | null> {
+    this.getCalls.push(key);
+    return this.data.get(key) ?? null;
+  }
+
+  async set(key: string, tokens: Tokens): Promise<void> {
+    this.setCalls.push({ key, tokens });
+    this.data.set(key, tokens);
+  }
+
+  async delete(key: string): Promise<void> {
+    this.data.delete(key);
+  }
+
+  async clear(): Promise<void> {
+    this.data.clear();
+  }
+
+  // Test helper methods
+  reset() {
+    this.data.clear();
+    this.getCalls = [];
+    this.setCalls = [];
+  }
+
+  setTestData(key: string, tokens: Tokens) {
+    this.data.set(key, tokens);
+  }
+}
+
+// Usage in tests
+describe("OAuth Flow", () => {
+  let mockStore: MockTokenStore;
+
+  beforeEach(() => {
+    mockStore = new MockTokenStore();
+    mockStore.setTestData("test-key", {
+      accessToken: "test-token",
+      expiresAt: Date.now() + 3600000,
+    });
+  });
+
+  it("should use stored tokens", async () => {
+    const authProvider = browserAuth({
+      store: mockStore,
+      storeKey: "test-key",
+    });
+
+    // Test your OAuth flow
+    expect(mockStore.getCalls).toContain("test-key");
+  });
+});
+```
+
+## Migration Strategies
+
+### Migrating Storage Backends
+
+```typescript
+async function migrateStorage(
+  source: TokenStore,
+  target: TokenStore,
+  keys?: string[],
+) {
+  // If no keys specified, migrate all (if source supports listing)
+  const keysToMigrate = keys || ["mcp-tokens"]; // Default key
+
+  for (const key of keysToMigrate) {
+    const tokens = await source.get(key);
+    if (tokens) {
+      await target.set(key, tokens);
+      console.log(`Migrated tokens for key: ${key}`);
+    }
+  }
+
+  console.log("Migration complete");
+}
+
+// Example: Migrate from file to Redis
+const fileStorage = fileStore();
+const redisStorage = new RedisTokenStore(redis);
+
+await migrateStorage(fileStorage, redisStorage);
+```
+
+### Upgrading Token Format
+
+```typescript
+class LegacyAdapter implements TokenStore {
+  private store: TokenStore;
+
+  constructor(store: TokenStore) {
+    this.store = store;
+  }
+
+  async get(key: string): Promise<Tokens | null> {
+    const data = await this.store.get(key);
+    if (!data) return null;
+
+    // Handle legacy format
+    if ("access_token" in (data as any)) {
+      return {
+        accessToken: (data as any).access_token,
+        refreshToken: (data as any).refresh_token,
+        expiresAt: (data as any).expires_at,
+        scope: (data as any).scope,
+      };
+    }
+
+    return data;
+  }
+
+  // ... other methods
+}
+```
+
+## Best Practices
+
+### Choosing a Storage Provider
+
+| Scenario               | Recommended Storage   | Reason                |
+| ---------------------- | --------------------- | --------------------- |
+| Development/Testing    | `inMemoryStore()`     | No persistence needed |
+| CLI Tools (single-use) | `inMemoryStore()`     | Security, simplicity  |
+| Desktop Apps           | `fileStore()`         | User convenience      |
+| Server Applications    | Custom (Redis/DB)     | Scalability, sharing  |
+| High Security          | `inMemoryStore()`     | No disk persistence   |
+| Multi-tenant           | Custom implementation | Isolation required    |
+
+### Storage Key Conventions
+
+```typescript
+// Use hierarchical keys for organization
+const key = `${organization}:${application}:${environment}`;
+
+// Examples:
+("acme:billing-app:production");
+("acme:billing-app:staging");
+("personal:cli-tool:default");
+```
+
+### Error Handling
+
+Always handle storage failures gracefully:
+
+```typescript
+class ResilientTokenStore implements TokenStore {
+  private primary: TokenStore;
+  private fallback: TokenStore;
+
+  constructor(primary: TokenStore, fallback: TokenStore) {
+    this.primary = primary;
+    this.fallback = fallback;
+  }
+
+  async get(key: string): Promise<Tokens | null> {
+    try {
+      return await this.primary.get(key);
+    } catch (error) {
+      console.warn("Primary storage failed, using fallback:", error);
+      return await this.fallback.get(key);
+    }
+  }
+
+  async set(key: string, tokens: Tokens): Promise<void> {
+    try {
+      await this.primary.set(key, tokens);
+      // Also update fallback for consistency
+      await this.fallback.set(key, tokens).catch(() => {});
+    } catch (error) {
+      console.warn("Primary storage failed, using fallback:", error);
+      await this.fallback.set(key, tokens);
+    }
+  }
+
+  // ... other methods
+}
+
+// Usage: Redis with file fallback
+const authProvider = browserAuth({
+  store: new ResilientTokenStore(new RedisTokenStore(redis), fileStore()),
+});
+```
+
+## Related APIs
+
+* [`browserAuth`](/api/browser-auth) - OAuth provider using storage
+* [`TokenStore` Types](/api/types#tokenstore) - TypeScript interfaces
+* [`OAuthError`](/api/oauth-error) - Error handling
+
+---
+
+---
+url: /oauth-callback/api/types.md
+description: >-
+  Complete reference for all TypeScript types, interfaces, and type definitions
+  in the oauth-callback library.
+---
+
+# TypeScript Types
+
+OAuth Callback is fully typed with TypeScript, providing comprehensive type safety and excellent IDE support. This page documents all exported types and interfaces available in the library.
+
+## Type Organization
+
+```mermaid
+flowchart TB
+    subgraph "Core Types"
+        GetAuthCodeOptions
+        CallbackResult
+        ServerOptions
+        CallbackServer
+    end
+
+    subgraph "Error Types"
+        OAuthError
+        TimeoutError
+    end
+
+    subgraph "Storage Types"
+        TokenStore
+        OAuthStore
+        Tokens
+        ClientInfo
+        OAuthSession
+    end
+
+    subgraph "MCP Types"
+        BrowserAuthOptions
+        OAuthClientProvider["OAuthClientProvider (MCP SDK)"]
+    end
+
+    GetAuthCodeOptions --> CallbackResult
+    ServerOptions --> CallbackServer
+    BrowserAuthOptions --> TokenStore
+    BrowserAuthOptions --> OAuthStore
+    OAuthStore --> Tokens
+    OAuthStore --> ClientInfo
+    OAuthStore --> OAuthSession
+```
+
+## Core Types
+
+### GetAuthCodeOptions
+
+Configuration options for the `getAuthCode` function.
+
+```typescript
+interface GetAuthCodeOptions {
+  authorizationUrl: string; // OAuth authorization URL
+  port?: number; // Server port (default: 3000)
+  hostname?: string; // Hostname (default: "localhost")
+  callbackPath?: string; // Callback path (default: "/callback")
+  timeout?: number; // Timeout in ms (default: 30000)
+  launch?: (url: string) => unknown; // Optional URL launcher
+  successHtml?: string; // Custom success HTML
+  errorHtml?: string; // Custom error HTML template
+  signal?: AbortSignal; // Cancellation signal
+  onRequest?: (req: Request) => void; // Request callback
+}
+```
+
+#### Usage Example
+
+```typescript
+import type { GetAuthCodeOptions } from "oauth-callback";
+
+const options: GetAuthCodeOptions = {
+  authorizationUrl: "https://oauth.example.com/authorize?...",
+  port: 8080,
+  timeout: 60000,
+  successHtml: "<h1>Success!</h1>",
+  errorHtml: "<h1>Error: {{error_description}}</h1>",
+  onRequest: (req) => console.log(`Request: ${req.url}`),
+};
+
+const result = await getAuthCode(options);
+```
+
+### CallbackResult
+
+Result object returned from OAuth callback containing authorization code or error details.
+
+```typescript
+interface CallbackResult {
+  code?: string; // Authorization code
+  state?: string; // State parameter for CSRF
+  error?: string; // OAuth error code
+  error_description?: string; // Error description
+  error_uri?: string; // Error info URI
+  [key: string]: string | undefined; // Additional params
+}
+```
+
+#### Usage Example
+
+```typescript
+import type { CallbackResult } from "oauth-callback";
+
+function handleCallback(result: CallbackResult) {
+  if (result.error) {
+    console.error(`OAuth error: ${result.error}`);
+    if (result.error_description) {
+      console.error(`Details: ${result.error_description}`);
+    }
+    return;
+  }
+
+  if (result.code) {
+    console.log(`Authorization code: ${result.code}`);
+
+    // Validate state for CSRF protection
+    if (result.state !== expectedState) {
+      throw new Error("State mismatch - possible CSRF attack");
+    }
+
+    // Exchange code for tokens
+    exchangeCodeForTokens(result.code);
+  }
+}
+```
+
+### ServerOptions
+
+Configuration options for the OAuth callback server.
+
+```typescript
+interface ServerOptions {
+  port: number; // Port to bind to
+  hostname?: string; // Hostname (default: "localhost")
+  successHtml?: string; // Custom success HTML
+  errorHtml?: string; // Error HTML template
+  signal?: AbortSignal; // Cancellation signal
+  onRequest?: (req: Request) => void; // Request callback
+}
+```
+
+#### Usage Example
+
+```typescript
+import type { ServerOptions } from "oauth-callback";
+
+const serverOptions: ServerOptions = {
+  port: 3000,
+  hostname: "127.0.0.1",
+  successHtml: `
+    <html>
+      <body>
+        <h1>Authorization successful!</h1>
+        <script>window.close()</script>
+      </body>
+    </html>
+  `,
+  onRequest: (req) => {
+    const url = new URL(req.url);
+    console.log(`[${req.method}] ${url.pathname}`);
+  },
+};
+```
+
+### CallbackServer
+
+Interface for OAuth callback server implementations across different runtimes.
+
+```typescript
+interface CallbackServer {
+  start(options: ServerOptions): Promise<void>;
+  waitForCallback(path: string, timeout: number): Promise<CallbackResult>;
+  stop(): Promise<void>;
+}
+```
+
+#### Implementation Example
+
+```typescript
+import type {
+  CallbackServer,
+  ServerOptions,
+  CallbackResult,
+} from "oauth-callback";
+
+class CustomCallbackServer implements CallbackServer {
+  private server?: HttpServer;
+
+  async start(options: ServerOptions): Promise<void> {
+    // Start HTTP server
+    this.server = await createServer(options);
+  }
+
+  async waitForCallback(
+    path: string,
+    timeout: number,
+  ): Promise<CallbackResult> {
+    // Wait for OAuth callback
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        reject(new Error("Timeout waiting for callback"));
+      }, timeout);
+
+      this.server.on("request", (req) => {
+        if (req.url.startsWith(path)) {
+          clearTimeout(timer);
+          const params = parseQueryParams(req.url);
+          resolve(params);
+        }
+      });
+    });
+  }
+
+  async stop(): Promise<void> {
+    // Stop server
+    await this.server?.close();
+  }
+}
+```
+
+## Storage Types
+
+### TokenStore
+
+Basic interface for OAuth token storage.
+
+```typescript
+interface TokenStore {
+  get(key: string): Promise<Tokens | null>;
+  set(key: string, tokens: Tokens): Promise<void>;
+  delete(key: string): Promise<void>;
+  clear(): Promise<void>;
+}
+```
+
+### Tokens
+
+OAuth token data structure.
+
+```typescript
+interface Tokens {
+  accessToken: string; // OAuth access token
+  refreshToken?: string; // Optional refresh token
+  expiresAt?: number; // Absolute expiry (Unix ms)
+  scope?: string; // Space-delimited scopes
+}
+```
+
+#### Usage Example
+
+```typescript
+import type { Tokens, TokenStore } from "oauth-callback/mcp";
+
+class CustomTokenStore implements TokenStore {
+  private storage = new Map<string, Tokens>();
+
+  async get(key: string): Promise<Tokens | null> {
+    return this.storage.get(key) ?? null;
+  }
+
+  async set(key: string, tokens: Tokens): Promise<void> {
+    // Check if token is expired
+    if (tokens.expiresAt && Date.now() >= tokens.expiresAt) {
+      console.warn("Storing expired token");
+    }
+    this.storage.set(key, tokens);
+  }
+
+  async delete(key: string): Promise<void> {
+    this.storage.delete(key);
+  }
+
+  async clear(): Promise<void> {
+    this.storage.clear();
+  }
+}
+```
+
+### OAuthStore
+
+Extended storage interface with Dynamic Client Registration support.
+
+```typescript
+interface OAuthStore extends TokenStore {
+  getClient(key: string): Promise<ClientInfo | null>;
+  setClient(key: string, client: ClientInfo): Promise<void>;
+  getSession(key: string): Promise<OAuthSession | null>;
+  setSession(key: string, session: OAuthSession): Promise<void>;
+}
+```
+
+### ClientInfo
+
+Dynamic client registration data.
+
+```typescript
+interface ClientInfo {
+  clientId: string; // OAuth client ID
+  clientSecret?: string; // Client secret
+  clientIdIssuedAt?: number; // Registration time
+  clientSecretExpiresAt?: number; // Secret expiry
+}
+```
+
+### OAuthSession
+
+Active OAuth flow state for crash recovery.
+
+```typescript
+interface OAuthSession {
+  codeVerifier?: string; // PKCE code verifier
+  state?: string; // OAuth state parameter
+}
+```
+
+#### Complete Storage Example
+
+```typescript
+import type {
+  OAuthStore,
+  Tokens,
+  ClientInfo,
+  OAuthSession,
+} from "oauth-callback/mcp";
+
+class DatabaseOAuthStore implements OAuthStore {
+  constructor(private db: Database) {}
+
+  // TokenStore methods
+  async get(key: string): Promise<Tokens | null> {
+    return await this.db.tokens.findOne({ key });
+  }
+
+  async set(key: string, tokens: Tokens): Promise<void> {
+    await this.db.tokens.upsert({ key }, tokens);
+  }
+
+  async delete(key: string): Promise<void> {
+    await this.db.tokens.delete({ key });
+  }
+
+  async clear(): Promise<void> {
+    await this.db.tokens.deleteMany({});
+  }
+
+  // OAuthStore additional methods
+  async getClient(key: string): Promise<ClientInfo | null> {
+    return await this.db.clients.findOne({ key });
+  }
+
+  async setClient(key: string, client: ClientInfo): Promise<void> {
+    // Check if client secret is expired
+    if (
+      client.clientSecretExpiresAt &&
+      Date.now() >= client.clientSecretExpiresAt
+    ) {
+      throw new Error("Cannot store expired client secret");
+    }
+    await this.db.clients.upsert({ key }, client);
+  }
+
+  async getSession(key: string): Promise<OAuthSession | null> {
+    return await this.db.sessions.findOne({ key });
+  }
+
+  async setSession(key: string, session: OAuthSession): Promise<void> {
+    await this.db.sessions.upsert({ key }, session);
+  }
+}
+```
+
+## MCP Types
+
+### BrowserAuthOptions
+
+Configuration for browser-based OAuth flows with MCP servers.
+
+```typescript
+interface BrowserAuthOptions {
+  // OAuth credentials
+  clientId?: string; // Pre-registered client ID
+  clientSecret?: string; // Pre-registered secret
+  scope?: string; // OAuth scopes
+
+  // Server configuration
+  port?: number; // Callback port (default: 3000)
+  hostname?: string; // Hostname (default: "localhost")
+  callbackPath?: string; // Path (default: "/callback")
+
+  // Storage
+  store?: TokenStore; // Token storage
+  storeKey?: string; // Storage key for token isolation
+
+  // Behavior
+  launch?: (url: string) => unknown; // URL launcher
+  authTimeout?: number; // Timeout ms (default: 300000)
+
+  // UI
+  successHtml?: string; // Success page HTML
+  errorHtml?: string; // Error page template
+
+  // Debugging
+  onRequest?: (req: Request) => void; // Request logger
+}
+```
+
+#### Usage Example
+
+```typescript
+import type { BrowserAuthOptions } from "oauth-callback/mcp";
+import { browserAuth, fileStore } from "oauth-callback/mcp";
+
+const options: BrowserAuthOptions = {
+  // Dynamic Client Registration - no credentials needed
+  scope: "read write",
+
+  // Custom server configuration
+  port: 8080,
+  hostname: "127.0.0.1",
+
+  // Persistent storage
+  store: fileStore("~/.myapp/tokens.json"),
+  storeKey: "production",
+
+  // Timeout
+  authTimeout: 600000, // 10 minutes
+
+  // Custom UI
+  successHtml: "<h1>Success!</h1>",
+
+  // Debugging
+  onRequest: (req) => {
+    console.log(`[OAuth] ${new URL(req.url).pathname}`);
+  },
+};
+
+const authProvider = browserAuth(options);
+```
+
+## Error Types
+
+### OAuthError
+
+OAuth-specific error class.
+
+```typescript
+class OAuthError extends Error {
+  name: "OAuthError";
+  error: string; // OAuth error code
+  error_description?: string; // Human-readable description
+  error_uri?: string; // Info URI
+
+  constructor(error: string, description?: string, uri?: string);
+}
+```
+
+### TimeoutError
+
+Timeout-specific error class.
+
+```typescript
+class TimeoutError extends Error {
+  name: "TimeoutError";
+  constructor(message?: string);
+}
+```
+
+#### Error Handling Example
+
+```typescript
+import { OAuthError, TimeoutError } from "oauth-callback";
+import type { CallbackResult } from "oauth-callback";
+
+function handleAuthResult(result: CallbackResult) {
+  // Check for OAuth errors in result
+  if (result.error) {
+    throw new OAuthError(
+      result.error,
+      result.error_description,
+      result.error_uri,
+    );
+  }
+
+  if (!result.code) {
+    throw new Error("No authorization code received");
+  }
+
+  return result.code;
+}
+
+// Usage with proper error handling
+try {
+  const code = await getAuthCode(authUrl);
+} catch (error) {
+  if (error instanceof OAuthError) {
+    console.error(`OAuth error: ${error.error}`);
+  } else if (error instanceof TimeoutError) {
+    console.error("Authorization timed out");
+  } else {
+    console.error("Unexpected error:", error);
+  }
+}
+```
+
+## Type Guards
+
+Useful type guard functions for runtime type checking:
+
+```typescript
+import type { Tokens, ClientInfo, OAuthSession } from "oauth-callback/mcp";
+
+// Check if object is Tokens
+function isTokens(obj: unknown): obj is Tokens {
+  return (
+    typeof obj === "object" &&
+    obj !== null &&
+    "accessToken" in obj &&
+    typeof (obj as any).accessToken === "string"
+  );
+}
+
+// Check if object is ClientInfo
+function isClientInfo(obj: unknown): obj is ClientInfo {
+  return (
+    typeof obj === "object" &&
+    obj !== null &&
+    "clientId" in obj &&
+    typeof (obj as any).clientId === "string"
+  );
+}
+
+// Check if object is OAuthSession
+function isOAuthSession(obj: unknown): obj is OAuthSession {
+  return (
+    typeof obj === "object" &&
+    obj !== null &&
+    ("codeVerifier" in obj || "state" in obj)
+  );
+}
+
+// Check if error is OAuthError
+function isOAuthError(error: unknown): error is OAuthError {
+  return error instanceof OAuthError;
+}
+
+// Usage
+const stored = await store.get("key");
+if (stored && isTokens(stored)) {
+  console.log("Valid tokens:", stored.accessToken);
+}
+```
+
+## Generic Type Patterns
+
+### Result Type Pattern
+
+```typescript
+type Result<T, E = Error> =
+  | { success: true; data: T }
+  | { success: false; error: E };
+
+async function safeGetAuthCode(
+  url: string,
+): Promise<Result<CallbackResult, OAuthError | Error>> {
+  try {
+    const result = await getAuthCode(url);
+    return { success: true, data: result };
+  } catch (error) {
+    if (error instanceof OAuthError) {
+      return { success: false, error };
+    }
+    return { success: false, error: error as Error };
+  }
+}
+
+// Usage
+const result = await safeGetAuthCode(authUrl);
+if (result.success) {
+  console.log("Code:", result.data.code);
+} else {
+  console.error("Error:", result.error.message);
+}
+```
+
+### Storage Adapter Pattern
+
+```typescript
+type StorageAdapter<T> = {
+  load(): Promise<T | null>;
+  save(data: T): Promise<void>;
+  remove(): Promise<void>;
+};
+
+function createStorageAdapter<T>(
+  store: TokenStore,
+  key: string,
+): StorageAdapter<T> {
+  return {
+    async load() {
+      const data = await store.get(key);
+      return data as T | null;
+    },
+    async save(data: T) {
+      await store.set(key, data as any);
+    },
+    async remove() {
+      await store.delete(key);
+    },
+  };
+}
+```
+
+## Type Exports
+
+### Main Package Exports
+
+```typescript
+// From "oauth-callback"
+export type {
+  GetAuthCodeOptions,
+  CallbackResult,
+  CallbackServer,
+  ServerOptions,
+};
+
+export { getAuthCode, OAuthError, inMemoryStore, fileStore };
+```
+
+### MCP Sub-Package Exports
+
+```typescript
+// From "oauth-callback/mcp"
+export type {
+  BrowserAuthOptions,
+  TokenStore,
+  OAuthStore,
+  Tokens,
+  ClientInfo,
+  OAuthSession,
+};
+
+export { browserAuth, inMemoryStore, fileStore };
+```
+
+### Namespace Export
+
+```typescript
+// Also available via namespace
+import { mcp } from "oauth-callback";
+
+// All MCP types and functions under mcp namespace
+const authProvider = mcp.browserAuth({
+  store: mcp.fileStore(),
+});
+```
+
+## TypeScript Configuration
+
+For optimal type support, use these TypeScript settings:
+
+```json
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "types": ["node", "bun-types"]
+  }
+}
+```
+
+## Type Versioning
+
+The library follows semantic versioning for types:
+
+* **Major version**: Breaking type changes
+* **Minor version**: New types or optional properties
+* **Patch version**: Type fixes that don't break compatibility
+
+## Related Documentation
+
+* [`getAuthCode`](/api/get-auth-code) - Main function using these types
+* [`browserAuth`](/api/browser-auth) - MCP provider using these types
+* [`Storage Providers`](/api/storage-providers) - Storage type implementations
+* [`OAuthError`](/api/oauth-error) - Error type documentation
+
+---
+
+---
+url: /oauth-callback/what-is-oauth-callback.md
+description: >-
+  Learn how OAuth Callback simplifies OAuth 2.0 authorization code capture for
+  CLI tools, desktop apps, and MCP clients using localhost callbacks.
+---
+
+# What is OAuth Callback? {#top}
+
+An OAuth callback is the mechanism that allows OAuth 2.0 authorization servers to return authorization codes to your application after user authentication. For native applications like CLI tools, desktop apps, and MCP clients, receiving this callback requires spinning up a temporary HTTP server on localhost — a process that **OAuth Callback** makes trivially simple with just one function call.
+
+**OAuth Callback** is designed for developers building CLI tools, desktop applications, automation scripts, and Model Context Protocol (MCP) clients that need to capture OAuth authorization codes via a localhost callback. Whether you're automating workflows across services (Notion, Linear, GitHub), building developer tools, or creating MCP-enabled applications, **OAuth Callback** handles the complexity of the loopback redirect flow recommended by [RFC 8252](https://www.rfc-editor.org/rfc/rfc8252.html) while providing modern features like Dynamic Client Registration and flexible token storage — all with support for Node.js 18+, Deno, and Bun.
+
+## Understanding OAuth Callbacks
+
+### What is a Callback URL in OAuth 2.0?
+
+In the OAuth 2.0 authorization code flow, the callback URL (also called redirect URI) is where the authorization server sends the user's browser after they approve or deny your application's access request. This URL receives critical information:
+
+* **On success**: An authorization `code` parameter that your app exchanges for access tokens
+* **On failure**: An `error` parameter describing what went wrong
+* **Security parameters**: The `state` value for CSRF protection
+
+For web applications, this callback is typically a route on your server. But for native applications without a public web server, you need a different approach.
+
+### The Loopback Redirect Pattern
+
+Native applications (CLIs, desktop apps) can't expose public URLs for callbacks. Instead, they use the **loopback interface** — a temporary HTTP server on `http://localhost` or `http://127.0.0.1`. This pattern, standardized in [RFC 8252](https://www.rfc-editor.org/rfc/rfc8252.html) (OAuth 2.0 for Native Apps), provides several benefits:
+
+* **No public exposure**: The callback server only accepts local connections
+* **Dynamic ports**: Apps can use any available port (e.g., 3000, 8080)
+* **Automatic cleanup**: The server shuts down immediately after receiving the callback
+* **Universal support**: Works across all platforms without special permissions
+
+Here's how the flow works:
+
+```mermaid
+sequenceDiagram
+    participant App as CLI/Desktop App
+    participant Browser as User's Browser
+    participant Auth as Authorization Server
+    participant Local as localhost:3000
+
+    App->>Local: Start HTTP server
+    App->>Browser: Open authorization URL
+    Browser->>Auth: Request authorization
+    Auth->>Browser: Show consent screen
+    Browser->>Auth: User approves
+    Auth->>Browser: Redirect to localhost:3000/callback?code=xyz
+    Browser->>Local: GET /callback?code=xyz
+    Local->>App: Capture code
+    App->>Local: Shutdown server
+    Local->>Browser: Show success page
+```
+
+### Security Best Practices
+
+OAuth 2.0 for native apps requires additional security measures:
+
+**Proof Key for Code Exchange (PKCE)** - [RFC 7636](https://www.rfc-editor.org/rfc/rfc7636.html) mandates using PKCE for public clients (those without client secrets). PKCE prevents authorization code interception attacks by binding the code exchange to a cryptographic challenge.
+
+```mermaid
+sequenceDiagram
+    participant App as Native App
+    participant Browser
+    participant Auth as Auth Server
+
+    Note over App: Generate code_verifier
+    Note over App: Hash to create code_challenge
+
+    App->>Browser: Open /authorize?code_challenge=...
+    Browser->>Auth: Authorization request with challenge
+    Auth->>Auth: Store challenge
+    Auth->>Browser: Redirect with code
+    Browser->>App: Return code
+
+    App->>Auth: POST /token with code + verifier
+    Auth->>Auth: Verify: hash(verifier) == challenge
+    Auth->>App: Return access token
+```
+
+**State Parameter** - A random value that prevents CSRF attacks. Your app generates this value, includes it in the authorization request, and validates it in the callback.
+
+**Dynamic Client Registration (DCR)** - [RFC 7591](https://www.rfc-editor.org/rfc/rfc7591.html) allows apps to register OAuth clients on-the-fly without pre-configuration. This is particularly useful for MCP servers where users shouldn't need to manually register OAuth applications.
+
+## How OAuth Callback Solves It
+
+OAuth Callback eliminates the boilerplate of implementing loopback redirects. Instead of manually managing servers, ports, and browser launches, you get a complete solution in one function call.
+
+### Core Functionality
+
+The library handles the entire OAuth callback flow:
+
+1. **Starts a localhost HTTP server** on your specified port
+2. **Opens the user's browser** to the authorization URL
+3. **Captures the callback** with the authorization code
+4. **Returns the result** as a clean JavaScript object
+5. **Shuts down the server** automatically
+
+### Zero Configuration Example
+
+Here's a complete OAuth flow in just 6 lines:
+
+```typescript {3-5}
+import { getAuthCode } from "oauth-callback";
+
+const result = await getAuthCode(
+  "https://github.com/login/oauth/authorize?client_id=xxx&redirect_uri=http://localhost:3000/callback",
+);
+
+console.log("Authorization code:", result.code);
+```
+
+That's it. No server setup, no browser management, no cleanup code.
+
+### Cross-Runtime Support
+
+OAuth Callback uses modern Web Standards APIs (Request, Response, URL) that work identically across:
+
+* **Node.js 18+** - Native fetch and Web Streams support
+* **Deno** - First-class Web Standards implementation
+* **Bun** - High-performance runtime with built-in APIs
+
+This means your OAuth code is portable across runtimes without modifications.
+
+### MCP Integration
+
+For Model Context Protocol applications, OAuth Callback provides the `browserAuth()` provider that integrates seamlessly with the MCP SDK:
+
+::: code-group
+
+```typescript [MCP with OAuth Callback]
+import { browserAuth, fileStore } from "oauth-callback/mcp";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+
+const authProvider = browserAuth({
+  store: fileStore(), // Persist tokens to ~/.mcp/tokens.json
+  scope: "read write",
+});
+
+// Use directly with MCP transports
+const transport = new StreamableHTTPClientTransport(
+  new URL("https://mcp.example.com"),
+  { authProvider },
+);
+```
+
+```typescript [Namespace Import]
+import { mcp } from "oauth-callback";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+
+const authProvider = mcp.browserAuth({
+  store: mcp.fileStore(),
+  scope: "read write",
+});
+```
+
+:::
+
+::: tip MCP Integration Features
+The MCP integration handles:
+
+* **Dynamic Client Registration** when supported by the server
+* **Token persistence** with `fileStore()` or ephemeral `inMemoryStore()`
+* **Automatic re-authentication** when tokens expire
+* **Multiple app namespace support** via `storeKey` option
+  :::
+
+## When to Use OAuth Callback
+
+### Perfect For
+
+OAuth Callback is ideal when:
+
+* **You control the user's machine** - CLI tools, desktop apps, development tools
+* **You can open a browser** - The user has a default browser configured
+* **You need quick setup** - No server infrastructure or complex configuration
+* **You're building MCP clients** - Direct integration with Model Context Protocol SDK
+
+### Consider Alternatives When
+
+**Device Authorization Flow** ([RFC 8628](https://www.rfc-editor.org/rfc/rfc8628.html)) might be better if:
+
+* **No browser access** - SSH sessions, headless servers, CI/CD environments
+* **Remote terminals** - The auth happens on a different device than the app
+* **Input-constrained devices** - Smart TVs, IoT devices without keyboards
+
+The Device Flow shows a code to the user that they enter on another device, eliminating the need for a browser on the same machine. However, it requires OAuth provider support and a more complex user experience.
+
+```mermaid
+flowchart TD
+    subgraph "OAuth Callback Flow"
+        A1[CLI App] -->|Opens browser| B1[Auth Page]
+        B1 -->|User authorizes| C1[localhost:3000/callback]
+        C1 -->|Returns code| A1
+        A1 -->|Exchange code| D1[Access Token]
+    end
+
+    subgraph "Device Authorization Flow"
+        A2[CLI App] -->|Request device code| B2[Auth Server]
+        B2 -->|Returns code + URL| A2
+        A2 -->|Display to user| C2["User Code: ABCD-1234"]
+        C2 -->|User enters on phone/laptop| D2[Auth Page]
+        D2 -->|User authorizes| E2[Auth Server]
+        A2 -->|Poll for token| E2
+        E2 -->|Returns token| F2[Access Token]
+    end
+```
+
+## Security Considerations
+
+OAuth Callback implements security best practices by default:
+
+::: info Security Features
+
+* **Localhost-only binding** - The callback server only accepts connections from `127.0.0.1` or `::1`, preventing remote access attempts.
+* **Automatic cleanup** - The HTTP server shuts down immediately after receiving the callback, minimizing the attack surface window.
+* **No persistent state** - Server is ephemeral and leaves no traces after completion.
+
+:::
+
+::: warning Always Validate State
+Always validate the `state` parameter returned in the callback matches what you sent:
+
+```typescript {4-7}
+const state = crypto.randomUUID();
+const authUrl = `https://example.com/authorize?state=${state}&...`;
+
+const result = await getAuthCode(authUrl);
+if (result.state !== state) {
+  throw new Error("State mismatch - possible CSRF attack");
+}
+```
+
+:::
+
+::: details Proof Key for Code Exchange (PKCE) Implementation
+For public clients, implement Proof Key for Code Exchange as required by [RFC 7636](https://www.rfc-editor.org/rfc/rfc7636.html):
+
+```typescript {3-4,7,10}
+import { createHash, randomBytes } from "crypto";
+
+const verifier = randomBytes(32).toString("base64url");
+const challenge = createHash("sha256").update(verifier).digest("base64url");
+
+// Include challenge in authorization request
+const authUrl = `https://example.com/authorize?code_challenge=${challenge}&code_challenge_method=S256&...`;
+
+// Include verifier in token exchange
+const tokenResponse = await fetch(tokenUrl, {
+  method: "POST",
+  body: new URLSearchParams({
+    code: result.code,
+    code_verifier: verifier,
+    // ... other parameters
+  }),
+});
+```
+
+:::
+
+**Token storage choices** - Choose storage based on your security requirements:
+
+::: code-group
+
+```typescript [Ephemeral Storage]
+// Tokens lost on restart (more secure)
+import { browserAuth, inMemoryStore } from "oauth-callback/mcp";
+
+const authProvider = browserAuth({
+  store: inMemoryStore(),
+});
+```
+
+```typescript [Persistent Storage]
+// Tokens saved to disk (convenient)
+import { browserAuth, fileStore } from "oauth-callback/mcp";
+
+const authProvider = browserAuth({
+  store: fileStore("~/.myapp/tokens.json"),
+});
+```
+
+:::
+
+## Requirements and Registration
+
+### Prerequisites
+
+::: details System Requirements
+
+| Requirement           | Details                                                          |
+| --------------------- | ---------------------------------------------------------------- |
+| **Runtime**           | Node.js 18+, Deno, or Bun                                        |
+| **OAuth Application** | Register your app with the OAuth provider                        |
+| **Redirect URI**      | Configure `http://localhost:3000/callback` (or your chosen port) |
+| **Browser**           | User must have a default browser configured                      |
+| **Permissions**       | Ability to bind to localhost ports                               |
+
+:::
+
+### Standard OAuth Registration
+
+Most OAuth providers require pre-registering your application:
+
+1. Create an OAuth app in the provider's developer console
+2. Set redirect URI to `http://localhost:3000/callback`
+3. Copy your client ID (and secret if provided)
+4. Use credentials in your code
+
+### Dynamic Client Registration for MCP
+
+Some MCP servers support Dynamic Client Registration ([RFC 7591](https://www.rfc-editor.org/rfc/rfc7591.html)), eliminating pre-registration:
+
+::: tip No Pre-Registration Required
+
+```typescript {1}
+// No client_id or client_secret needed!
+const authProvider = browserAuth({
+  scope: "read write",
+  store: fileStore(),
+});
+```
+
+:::
+
+The Notion MCP example demonstrates this — the server automatically registers your client on first use. This greatly simplifies distribution of MCP-enabled tools.
+
+```mermaid
+flowchart LR
+    subgraph "Traditional OAuth Setup"
+        A[Developer] -->|1 Register app| B[OAuth Provider]
+        B -->|2 Get client_id| A
+        A -->|3 Embed client_id in app| D[CLI App]
+        A -->|4 Distribute app| C[User]
+        C -->|5 Runs app to authenticate| D
+    end
+
+    subgraph "Dynamic Client Registration"
+        E[User] -->|1 Run app| F[CLI App]
+        F -->|2 Auto-register| G[OAuth Provider]
+        G -->|3 Return credentials| F
+        F -->|4 Complete auth| H[Ready to use!]
+    end
+
+    style H fill:#3498DB
+```

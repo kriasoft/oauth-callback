@@ -1,0 +1,33 @@
+# OAuth flow for your CLI or Node.js app
+
+> OAuth 2.0 callback handler for CLI tools & desktop apps. Cross-runtime (Node.js/Deno/Bun), MCP SDK integration, minimal deps, TypeScript-first.
+
+Lightweight, cross-runtime, with native MCP SDK integration for AI agents
+
+## Table of Contents
+
+### Introduction
+
+- [What is OAuth Callback?](/oauth-callback/what-is-oauth-callback.md): Learn how OAuth Callback simplifies OAuth 2.0 authorization code capture for CLI tools, desktop apps, and MCP clients using localhost callbacks.
+- [Getting Started](/oauth-callback/getting-started.md): Quick start guide to implement OAuth 2.0 authorization code flow in your CLI tools, desktop apps, and MCP clients using oauth-callback.
+- [Core Concepts](/oauth-callback/core-concepts.md): Master the fundamental concepts and architecture of OAuth Callback, from the authorization flow to token management and MCP integration patterns.
+
+### API Reference
+
+- [getAuthCode](/oauth-callback/api/get-auth-code.md): Core function for capturing OAuth authorization codes via localhost callback in CLI tools and desktop applications.
+- [browserAuth](/oauth-callback/api/browser-auth.md): MCP SDK-compatible OAuth provider for browser-based authentication flows with Dynamic Client Registration support.
+- [Storage Providers](/oauth-callback/api/storage-providers.md): Token storage interfaces and implementations for persisting OAuth tokens, client credentials, and session state.
+- [OAuthError](/oauth-callback/api/oauth-error.md): OAuth-specific error class for handling authorization failures and provider errors according to RFC 6749.
+- [TypeScript Types](/oauth-callback/api/types.md): Complete reference for all TypeScript types, interfaces, and type definitions in the oauth-callback library.
+
+### Examples
+
+- [Notion MCP Example](/oauth-callback/examples/notion.md): Connect to Notion's Model Context Protocol server using OAuth Callback with Dynamic Client Registration - no pre-configured OAuth app required.
+- [Linear MCP Example](/oauth-callback/examples/linear.md): Integrate with Linear's Model Context Protocol server using OAuth Callback for seamless issue tracking and project management automation.
+
+### Other
+
+- [API Reference](/oauth-callback/api.md): Complete API documentation for OAuth Callback library functions, types, and interfaces.
+- [Examples](/oauth-callback/examples.md)
+- [Markdown Extension Examples](/oauth-callback/markdown-examples.md)
+- [Runtime API Examples](/oauth-callback/api-examples.md)
