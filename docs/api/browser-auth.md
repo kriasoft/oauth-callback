@@ -17,21 +17,21 @@ function browserAuth(options?: BrowserAuthOptions): OAuthClientProvider;
 
 ### BrowserAuthOptions
 
-| Property       | Type                     | Default           | Description                        |
-| -------------- | ------------------------ | ----------------- | ---------------------------------- |
-| `clientId`     | `string`                 | _none_            | Pre-registered OAuth client ID     |
-| `clientSecret` | `string`                 | _none_            | Pre-registered OAuth client secret |
-| `scope`        | `string`                 | _none_            | OAuth scopes to request            |
-| `port`         | `number`                 | `3000`            | Port for local callback server     |
-| `hostname`     | `string`                 | `"localhost"`     | Hostname to bind server to         |
-| `callbackPath` | `string`                 | `"/callback"`     | URL path for OAuth callback        |
-| `store`        | `TokenStore`             | `inMemoryStore()` | Token storage implementation       |
-| `storeKey`     | `string`                 | `"mcp-tokens"`    | Storage key for token isolation    |
-| `launch`       | `(url: string) => unknown` | _none_          | Callback to launch auth URL        |
-| `authTimeout`  | `number`                 | `300000`          | Auth timeout in ms (5 min)         |
-| `successHtml`  | `string`                 | _built-in_        | Custom success page HTML           |
-| `errorHtml`    | `string`                 | _built-in_        | Custom error page HTML             |
-| `onRequest`    | `(req: Request) => void` | _none_            | Request logging callback           |
+| Property       | Type                       | Default           | Description                        |
+| -------------- | -------------------------- | ----------------- | ---------------------------------- |
+| `clientId`     | `string`                   | _none_            | Pre-registered OAuth client ID     |
+| `clientSecret` | `string`                   | _none_            | Pre-registered OAuth client secret |
+| `scope`        | `string`                   | _none_            | OAuth scopes to request            |
+| `port`         | `number`                   | `3000`            | Port for local callback server     |
+| `hostname`     | `string`                   | `"localhost"`     | Hostname to bind server to         |
+| `callbackPath` | `string`                   | `"/callback"`     | URL path for OAuth callback        |
+| `store`        | `TokenStore`               | `inMemoryStore()` | Token storage implementation       |
+| `storeKey`     | `string`                   | `"mcp-tokens"`    | Storage key for token isolation    |
+| `launch`       | `(url: string) => unknown` | _none_            | Callback to launch auth URL        |
+| `authTimeout`  | `number`                   | `300000`          | Auth timeout in ms (5 min)         |
+| `successHtml`  | `string`                   | _built-in_        | Custom success page HTML           |
+| `errorHtml`    | `string`                   | _built-in_        | Custom error page HTML             |
+| `onRequest`    | `(req: Request) => void`   | _none_            | Request logging callback           |
 
 ## Return Value
 

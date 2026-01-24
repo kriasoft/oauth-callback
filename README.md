@@ -84,7 +84,10 @@ async function authenticate() {
     });
 
   try {
-    const result = await getAuthCode({ authorizationUrl: authUrl, launch: open });
+    const result = await getAuthCode({
+      authorizationUrl: authUrl,
+      launch: open,
+    });
     console.log("Authorization code:", result.code);
     console.log("State:", result.state);
 
@@ -431,7 +434,11 @@ bun run example:notion  # Notion MCP example with Dynamic Client Registration
 If port 3000 is already in use, specify a different port:
 
 ```typescript
-const result = await getAuthCode({ authorizationUrl: authUrl, launch: open, port: 8080 });
+const result = await getAuthCode({
+  authorizationUrl: authUrl,
+  launch: open,
+  port: 8080,
+});
 ```
 
 ### Firewall Warnings

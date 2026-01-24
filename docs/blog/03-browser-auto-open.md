@@ -1,6 +1,6 @@
 ---
 link: https://dev.to/kriasoft/browser-auto-open-seamless-oauth-ux-for-cli-tools-3nh4
-title: Browser Auto-Open: Seamless OAuth UX for CLI Tools
+title: "Browser Auto-Open: Seamless OAuth UX for CLI Tools"
 date: 2025-01-20
 author: Konstantin Tarkus
 tags: [oauth, cli, ux, authentication, browser]

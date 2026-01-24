@@ -24,18 +24,18 @@ The function accepts either:
 
 ### GetAuthCodeOptions
 
-| Property           | Type                     | Default       | Description                                   |
-| ------------------ | ------------------------ | ------------- | --------------------------------------------- |
-| `authorizationUrl` | `string`                 | _required_    | OAuth authorization URL with query parameters |
-| `port`             | `number`                 | `3000`        | Port for the local callback server            |
-| `hostname`         | `string`                 | `"localhost"` | Hostname to bind the server to                |
-| `callbackPath`     | `string`                 | `"/callback"` | URL path for OAuth callback                   |
-| `timeout`          | `number`                 | `30000`       | Timeout in milliseconds                       |
-| `launch`           | `(url: string) => unknown` | _none_      | Optional callback to launch auth URL          |
-| `successHtml`      | `string`                 | _built-in_    | Custom HTML for successful auth               |
-| `errorHtml`        | `string`                 | _built-in_    | Custom HTML template for errors               |
-| `signal`           | `AbortSignal`            | _none_        | For programmatic cancellation                 |
-| `onRequest`        | `(req: Request) => void` | _none_        | Callback for request logging                  |
+| Property           | Type                       | Default       | Description                                   |
+| ------------------ | -------------------------- | ------------- | --------------------------------------------- |
+| `authorizationUrl` | `string`                   | _required_    | OAuth authorization URL with query parameters |
+| `port`             | `number`                   | `3000`        | Port for the local callback server            |
+| `hostname`         | `string`                   | `"localhost"` | Hostname to bind the server to                |
+| `callbackPath`     | `string`                   | `"/callback"` | URL path for OAuth callback                   |
+| `timeout`          | `number`                   | `30000`       | Timeout in milliseconds                       |
+| `launch`           | `(url: string) => unknown` | _none_        | Optional callback to launch auth URL          |
+| `successHtml`      | `string`                   | _built-in_    | Custom HTML for successful auth               |
+| `errorHtml`        | `string`                   | _built-in_    | Custom HTML template for errors               |
+| `signal`           | `AbortSignal`              | _none_        | For programmatic cancellation                 |
+| `onRequest`        | `(req: Request) => void`   | _none_        | Callback for request logging                  |
 
 ## Return Value
 

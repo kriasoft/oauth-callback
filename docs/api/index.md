@@ -369,7 +369,11 @@ const authProvider = browserAuth({
 function createAuthProvider(env: "dev" | "staging" | "prod") {
   const configs = {
     dev: { launch: open, port: 3000, store: inMemoryStore() },
-    staging: { launch: open, port: 3001, store: fileStore("~/.mcp/staging.json") },
+    staging: {
+      launch: open,
+      port: 3001,
+      store: fileStore("~/.mcp/staging.json"),
+    },
     prod: { launch: open, port: 3002, store: fileStore("~/.mcp/prod.json") },
   };
   return browserAuth(configs[env]);

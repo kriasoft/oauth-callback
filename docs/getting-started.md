@@ -126,7 +126,10 @@ async function authenticate() {
   try {
     // Get authorization code
     console.log("Opening browser for authentication...");
-    const result = await getAuthCode({ authorizationUrl: authUrl.toString(), launch: open });
+    const result = await getAuthCode({
+      authorizationUrl: authUrl.toString(),
+      launch: open,
+    });
 
     // Validate state
     if (result.state !== state) {
