@@ -1,0 +1,5 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://kriasoft.com/oauth-callback/sitemap.xml
+Sitemap: https://kriasoft.com/oauth-callback/llms.txt

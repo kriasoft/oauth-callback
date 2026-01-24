@@ -2,6 +2,7 @@
 /* SPDX-License-Identifier: MIT */
 
 import { defineConfig } from "vitepress";
+import llmstxt from "vitepress-plugin-llms";
 import { withMermaid } from "vitepress-plugin-mermaid";
 
 export default withMermaid(
@@ -17,6 +18,10 @@ export default withMermaid(
 
     sitemap: {
       hostname: "https://kriasoft.com/oauth-callback",
+      transformItems: (items) => {
+        items.push({ url: "llms.txt" }, { url: "llms-full.txt" });
+        return items;
+      },
     },
 
     head: [
@@ -26,6 +31,24 @@ export default withMermaid(
       [
         "meta",
         { property: "og:url", content: "https://kriasoft.com/oauth-callback/" },
+      ],
+      [
+        "link",
+        {
+          rel: "alternate",
+          type: "text/plain",
+          href: "/oauth-callback/llms.txt",
+          title: "LLM context",
+        },
+      ],
+      [
+        "link",
+        {
+          rel: "alternate",
+          type: "text/plain",
+          href: "/oauth-callback/llms-full.txt",
+          title: "LLM context (full)",
+        },
       ],
     ],
 
@@ -96,9 +119,14 @@ export default withMermaid(
       ],
 
       footer: {
-        message: "Released under the MIT License.",
+        message:
+          'LLM context: <a href="/oauth-callback/llms.txt">llms.txt</a> · <a href="/oauth-callback/llms-full.txt">llms-full.txt</a><br>Released under the MIT License.',
         copyright: "Copyright © 2025-present Kriasoft",
       },
+    },
+
+    vite: {
+      plugins: [llmstxt()],
     },
   }),
 );
