@@ -1,6 +1,6 @@
 {
   "name": "oauth-callback",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Lightweight OAuth 2.0 callback handler for Node.js, Deno, and Bun with built-in browser flow and MCP SDK integration",
   "keywords": [
     "oauth",
