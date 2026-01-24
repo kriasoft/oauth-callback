@@ -1,0 +1,59 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to publish (e.g. v1.2.3)"
+        required: true
+        type: string
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref_name }}
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+
+      - run: bun install --frozen-lockfile
+      - run: bun run build:templates
+      - run: bun run build
+
+      - name: Verify version match
+        run: |
+          TAG_REF="${{ github.event.inputs.tag || github.ref_name }}"
+          PACKAGE_VERSION="v$(node -p \"require('./package.json').version\")"
+          if [ "$PACKAGE_VERSION" != "$TAG_REF" ]; then
+            echo "Error: Package version ($PACKAGE_VERSION) doesn't match tag ($TAG_REF)"
+            exit 1
+          fi
+          echo "✅ Version verified: $PACKAGE_VERSION"
+
+      - name: Verify dist output
+        run: |
+          if [ ! -f "dist/index.js" ]; then
+            echo "Error: dist/index.js not found"
+            exit 1
+          fi
+          if [ ! -f "dist/index.d.ts" ]; then
+            echo "Error: dist/index.d.ts not found"
+            exit 1
+          fi
+          echo "✅ Build output verified"
+
+      - run: npm publish --access public --provenance
