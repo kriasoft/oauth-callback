@@ -14,6 +14,7 @@
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import open from "open";
 import { browserAuth, inMemoryStore } from "../src/mcp";
 
 async function main() {
@@ -30,6 +31,7 @@ async function main() {
     port: 3000,
     scope: "read write",
     store: inMemoryStore(), // Ephemeral storage - tokens lost on restart
+    launch: open, // Opens browser for OAuth consent
     onRequest(req) {
       const url = new URL(req.url);
       console.log(`📨 Received ${req.method} request to ${url.pathname}`);

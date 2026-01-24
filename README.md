@@ -131,6 +131,7 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 const authProvider = browserAuth({
   port: 3000,
   scope: "read write",
+  launch: open, // Opens browser for OAuth consent
   store: inMemoryStore(), // Or fileStore() for persistence
 });
 
@@ -155,17 +156,20 @@ import { browserAuth, inMemoryStore, fileStore } from "oauth-callback/mcp";
 
 // Ephemeral storage (tokens lost on restart)
 const ephemeralAuth = browserAuth({
+  launch: open,
   store: inMemoryStore(),
 });
 
 // Persistent file storage (default: ~/.mcp/tokens.json)
 const persistentAuth = browserAuth({
+  launch: open,
   store: fileStore(),
   storeKey: "my-app-tokens", // Namespace for multiple apps
 });
 
 // Custom file location
 const customAuth = browserAuth({
+  launch: open,
   store: fileStore("/path/to/tokens.json"),
 });
 ```
@@ -179,6 +183,7 @@ const authProvider = browserAuth({
   clientId: "your-client-id",
   clientSecret: "your-client-secret",
   scope: "read write",
+  launch: open, // Opens browser for OAuth consent
   store: fileStore(), // Persist tokens across sessions
 });
 ```
@@ -283,6 +288,7 @@ Available from `oauth-callback/mcp`. Creates an MCP SDK-compatible OAuth provide
   - `clientSecret` (string): Pre-registered client secret (optional)
   - `store` (TokenStore): Token storage implementation (default: inMemoryStore())
   - `storeKey` (string): Storage key for tokens (default: "mcp-tokens")
+  - `launch` (function): Callback to launch auth URL (e.g., `open`)
   - `authTimeout` (number): Authorization timeout in ms (default: 300000)
   - `successHtml` (string): Custom success page HTML
   - `errorHtml` (string): Custom error page HTML

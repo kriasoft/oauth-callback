@@ -185,13 +185,10 @@ test("successful authorization with string input", async () => {
 });
 
 test("timeout throws TimeoutError", async () => {
-  // Use a URL that doesn't exist to ensure no callback is made
-  const authUrl = "http://localhost:9999/nonexistent";
-
+  // Headless mode: no authorizationUrl, no launch — just wait for callback
   let errorThrown = false;
   try {
     await getAuthCode({
-      authorizationUrl: authUrl,
       port: 3004,
       timeout: 100,
     });
@@ -206,16 +203,14 @@ test("timeout throws TimeoutError", async () => {
 
 test("abort signal handling", async () => {
   const controller = new AbortController();
-  // Use a non-existent URL to prevent immediate callback
-  const authUrl = "http://localhost:9999/nonexistent";
 
   // Abort after 50ms
   setTimeout(() => controller.abort(), 50);
 
   let errorThrown = false;
   try {
+    // Headless mode: no authorizationUrl, no launch — just wait for callback
     await getAuthCode({
-      authorizationUrl: authUrl,
       port: 3005,
       signal: controller.signal,
     });
@@ -278,17 +273,14 @@ test("onRequest callback is called", async () => {
 });
 
 test("server cleanup on early stop", async () => {
-  // Use a non-existent URL to prevent immediate callback
-  const authUrl = "http://localhost:9999/nonexistent";
-
   // This should not throw even if we never receive a callback
   let errorThrown = false;
   try {
     const controller = new AbortController();
     setTimeout(() => controller.abort(), 10);
 
+    // Headless mode: no authorizationUrl, no launch — just wait for callback
     await getAuthCode({
-      authorizationUrl: authUrl,
       port: 3008,
       signal: controller.signal,
     });

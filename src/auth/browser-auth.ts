@@ -260,17 +260,26 @@ class BrowserOAuthProvider implements OAuthClientProvider {
   }
 
   private async _doAuthorization(authorizationUrl: URL): Promise<void> {
-    const result = await getAuthCode({
-      authorizationUrl: authorizationUrl.href,
+    // Use managed mode (with launch) or headless mode based on _launch presence
+    const baseOptions = {
       port: this._port,
       hostname: this._hostname,
       callbackPath: this._callbackPath,
       timeout: this._authTimeout,
-      launch: this._launch,
       successHtml: this._successHtml,
       errorHtml: this._errorHtml,
       onRequest: this._onRequest,
-    });
+    };
+
+    const result = await getAuthCode(
+      this._launch
+        ? {
+            ...baseOptions,
+            authorizationUrl: authorizationUrl.href,
+            launch: this._launch,
+          }
+        : baseOptions,
+    );
 
     /** Cache auth code for SDK's separate token exchange call. */
     this._pendingAuthCode = result.code;

@@ -81,9 +81,11 @@ function inMemoryStore(): TokenStore;
 #### Usage
 
 ```typescript
+import open from "open";
 import { browserAuth, inMemoryStore } from "oauth-callback/mcp";
 
 const authProvider = browserAuth({
+  launch: open,
   store: inMemoryStore(),
 });
 ```
@@ -125,20 +127,24 @@ function fileStore(filepath?: string): TokenStore;
 #### Usage
 
 ```typescript
+import open from "open";
 import { browserAuth, fileStore } from "oauth-callback/mcp";
 
 // Use default location (~/.mcp/tokens.json)
 const authProvider = browserAuth({
+  launch: open,
   store: fileStore(),
 });
 
 // Use custom location
 const customAuth = browserAuth({
+  launch: open,
   store: fileStore("/path/to/my-tokens.json"),
 });
 
 // Environment-specific storage
 const envAuth = browserAuth({
+  launch: open,
   store: fileStore(`~/.myapp/${process.env.NODE_ENV}-tokens.json`),
 });
 ```
@@ -183,7 +189,10 @@ Storage keys namespace tokens for different applications or environments:
 ### Single Application
 
 ```typescript
+import open from "open";
+
 const authProvider = browserAuth({
+  launch: open,
   store: fileStore(),
   storeKey: "my-app", // Default: "mcp-tokens"
 });
@@ -192,14 +201,18 @@ const authProvider = browserAuth({
 ### Multiple Applications
 
 ```typescript
+import open from "open";
+
 // App 1
 const app1Auth = browserAuth({
+  launch: open,
   store: fileStore(),
   storeKey: "app1-tokens",
 });
 
 // App 2 (same file, different key)
 const app2Auth = browserAuth({
+  launch: open,
   store: fileStore(),
   storeKey: "app2-tokens",
 });
@@ -208,7 +221,10 @@ const app2Auth = browserAuth({
 ### Environment Separation
 
 ```typescript
+import open from "open";
+
 const authProvider = browserAuth({
+  launch: open,
   store: fileStore(),
   storeKey: `${process.env.APP_NAME}-${process.env.NODE_ENV}`,
 });
@@ -266,8 +282,10 @@ class RedisTokenStore implements TokenStore {
 }
 
 // Usage
+import open from "open";
 const redis = new Redis();
 const authProvider = browserAuth({
+  launch: open,
   store: new RedisTokenStore(redis),
 });
 ```
@@ -340,7 +358,9 @@ class SQLiteTokenStore implements TokenStore {
 }
 
 // Usage
+import open from "open";
 const authProvider = browserAuth({
+  launch: open,
   store: new SQLiteTokenStore("./oauth-tokens.db"),
 });
 ```
@@ -444,11 +464,13 @@ class MongoOAuthStore implements OAuthStore {
 }
 
 // Usage
+import open from "open";
 const client = new MongoClient("mongodb://localhost:27017");
 await client.connect();
 const db = client.db("oauth");
 
 const authProvider = browserAuth({
+  launch: open,
   store: new MongoOAuthStore(db),
 });
 ```
@@ -538,6 +560,7 @@ class EncryptedTokenStore implements TokenStore {
 }
 
 // Usage
+import open from "open";
 const encryptedStore = new EncryptedTokenStore(
   fileStore(),
   process.env.ENCRYPTION_PASSWORD!,
@@ -545,6 +568,7 @@ const encryptedStore = new EncryptedTokenStore(
 await encryptedStore.init(process.env.ENCRYPTION_PASSWORD!);
 
 const authProvider = browserAuth({
+  launch: open,
   store: encryptedStore,
 });
 ```
@@ -606,7 +630,9 @@ class TenantAwareStore implements TokenStore {
 }
 
 // Usage
+import open from "open";
 const authProvider = browserAuth({
+  launch: open,
   store: new TenantAwareStore(),
   storeKey: `${tenantId}:${appName}`,
 });
@@ -667,7 +693,9 @@ class CachedTokenStore implements TokenStore {
 }
 
 // Usage
+import open from "open";
 const authProvider = browserAuth({
+  launch: open,
   store: new CachedTokenStore(fileStore(), 600), // 10 min cache
 });
 ```
@@ -728,6 +756,7 @@ describe("OAuth Flow", () => {
 
   it("should use stored tokens", async () => {
     const authProvider = browserAuth({
+      launch: () => {}, // Noop for tests
       store: mockStore,
       storeKey: "test-key",
     });
@@ -863,7 +892,9 @@ class ResilientTokenStore implements TokenStore {
 }
 
 // Usage: Redis with file fallback
+import open from "open";
 const authProvider = browserAuth({
+  launch: open,
   store: new ResilientTokenStore(new RedisTokenStore(redis), fileStore()),
 });
 ```
