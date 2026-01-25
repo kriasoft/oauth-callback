@@ -13,11 +13,11 @@ export { browserAuth } from "./auth/browser-auth";
 export { inMemoryStore } from "./storage/memory";
 export { fileStore } from "./storage/file";
 
+export { OAuthStoreBrand } from "./mcp-types";
 export type {
   BrowserAuthOptions,
   Tokens,
   TokenStore,
   ClientInfo,
-  OAuthSession,
   OAuthStore,
 } from "./mcp-types";

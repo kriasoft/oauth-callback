@@ -534,7 +534,7 @@ If you're in a headless environment or the browser doesn't open:
 ```typescript
 // Headless mode - print URL for manual opening
 console.log(`Please open: ${authUrl}`);
-const result = await getAuthCode({ authorizationUrl: authUrl });
+const result = await getAuthCode({ port: 3000, timeout: 120000 });
 ```
 
 :::

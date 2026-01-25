@@ -28,7 +28,6 @@ flowchart TB
         OAuthStore
         Tokens
         ClientInfo
-        OAuthSession
     end
 
     subgraph "MCP Types"
@@ -42,7 +41,6 @@ flowchart TB
     BrowserAuthOptions --> OAuthStore
     OAuthStore --> Tokens
     OAuthStore --> ClientInfo
-    OAuthStore --> OAuthSession
 ```
 
 ## Core Types
@@ -231,7 +229,6 @@ interface TokenStore {
   get(key: string): Promise<Tokens | null>;
   set(key: string, tokens: Tokens): Promise<void>;
   delete(key: string): Promise<void>;
-  clear(): Promise<void>;
 }
 ```
 
@@ -271,23 +268,26 @@ class CustomTokenStore implements TokenStore {
   async delete(key: string): Promise<void> {
     this.storage.delete(key);
   }
-
-  async clear(): Promise<void> {
-    this.storage.clear();
-  }
 }
 ```
 
 ### OAuthStore
 
-Extended storage interface with Dynamic Client Registration support.
+Extended storage interface with Dynamic Client Registration and PKCE verifier persistence.
 
 ```typescript
+import { OAuthStoreBrand } from "oauth-callback/mcp";
+
 interface OAuthStore extends TokenStore {
+  readonly [OAuthStoreBrand]: true; // Required brand for type detection
+
   getClient(key: string): Promise<ClientInfo | null>;
   setClient(key: string, client: ClientInfo): Promise<void>;
-  getSession(key: string): Promise<OAuthSession | null>;
-  setSession(key: string, session: OAuthSession): Promise<void>;
+  deleteClient(key: string): Promise<void>;
+
+  getCodeVerifier(key: string): Promise<string | null>;
+  setCodeVerifier(key: string, verifier: string): Promise<void>;
+  deleteCodeVerifier(key: string): Promise<void>;
 }
 ```
 
@@ -304,28 +304,19 @@ interface ClientInfo {
 }
 ```
 
-### OAuthSession
-
-Active OAuth flow state for crash recovery.
-
-```typescript
-interface OAuthSession {
-  codeVerifier?: string; // PKCE code verifier
-  state?: string; // OAuth state parameter
-}
-```
-
 #### Complete Storage Example
 
 ```typescript
-import type {
-  OAuthStore,
-  Tokens,
-  ClientInfo,
-  OAuthSession,
+import {
+  OAuthStoreBrand,
+  type OAuthStore,
+  type Tokens,
+  type ClientInfo,
 } from "oauth-callback/mcp";
 
 class DatabaseOAuthStore implements OAuthStore {
+  readonly [OAuthStoreBrand] = true as const;
+
   constructor(private db: Database) {}
 
   // TokenStore methods
@@ -341,32 +332,31 @@ class DatabaseOAuthStore implements OAuthStore {
     await this.db.tokens.delete({ key });
   }
 
-  async clear(): Promise<void> {
-    await this.db.tokens.deleteMany({});
-  }
-
-  // OAuthStore additional methods
+  // Client registration methods
   async getClient(key: string): Promise<ClientInfo | null> {
     return await this.db.clients.findOne({ key });
   }
 
   async setClient(key: string, client: ClientInfo): Promise<void> {
-    // Check if client secret is expired
-    if (
-      client.clientSecretExpiresAt &&
-      Date.now() >= client.clientSecretExpiresAt
-    ) {
-      throw new Error("Cannot store expired client secret");
-    }
     await this.db.clients.upsert({ key }, client);
   }
 
-  async getSession(key: string): Promise<OAuthSession | null> {
-    return await this.db.sessions.findOne({ key });
+  async deleteClient(key: string): Promise<void> {
+    await this.db.clients.delete({ key });
   }
 
-  async setSession(key: string, session: OAuthSession): Promise<void> {
-    await this.db.sessions.upsert({ key }, session);
+  // PKCE verifier methods
+  async getCodeVerifier(key: string): Promise<string | null> {
+    const doc = await this.db.verifiers.findOne({ key });
+    return doc?.verifier ?? null;
+  }
+
+  async setCodeVerifier(key: string, verifier: string): Promise<void> {
+    await this.db.verifiers.upsert({ key }, { verifier });
+  }
+
+  async deleteCodeVerifier(key: string): Promise<void> {
+    await this.db.verifiers.delete({ key });
   }
 }
 ```
@@ -509,7 +499,7 @@ try {
 Useful type guard functions for runtime type checking:
 
 ```typescript
-import type { Tokens, ClientInfo, OAuthSession } from "oauth-callback/mcp";
+import type { Tokens, ClientInfo } from "oauth-callback/mcp";
 
 // Check if object is Tokens
 function isTokens(obj: unknown): obj is Tokens {
@@ -528,15 +518,6 @@ function isClientInfo(obj: unknown): obj is ClientInfo {
     obj !== null &&
     "clientId" in obj &&
     typeof (obj as any).clientId === "string"
-  );
-}
-
-// Check if object is OAuthSession
-function isOAuthSession(obj: unknown): obj is OAuthSession {
-  return (
-    typeof obj === "object" &&
-    obj !== null &&
-    ("codeVerifier" in obj || "state" in obj)
   );
 }
 
@@ -632,14 +613,7 @@ export { getAuthCode, OAuthError, inMemoryStore, fileStore };
 
 ```typescript
 // From "oauth-callback/mcp"
-export type {
-  BrowserAuthOptions,
-  TokenStore,
-  OAuthStore,
-  Tokens,
-  ClientInfo,
-  OAuthSession,
-};
+export type { BrowserAuthOptions, TokenStore, OAuthStore, Tokens, ClientInfo };
 
 export { browserAuth, inMemoryStore, fileStore };
 ```

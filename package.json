@@ -1,6 +1,6 @@
 {
   "name": "oauth-callback",
-  "version": "2.1.1",
+  "version": "2.2.0",
   "description": "Lightweight OAuth 2.0 callback handler for Node.js, Deno, and Bun with built-in browser flow and MCP SDK integration",
   "keywords": [
     "oauth",
@@ -104,7 +104,7 @@
   },
   "scripts": {
     "build:templates": "bun run templates/build.ts",
-    "build": "bun run build:templates && bun build ./src/index.ts --outdir=./dist --target=node && bun build ./src/mcp.ts --outdir=./dist --target=node && tsc --declaration --emitDeclarationOnly --outDir ./dist",
+    "build": "bun run build:templates && bun build ./src/index.ts --outdir=./dist --target=node && bun build ./src/mcp.ts --outdir=./dist --target=node --external=@modelcontextprotocol/sdk && tsc --declaration --emitDeclarationOnly --outDir ./dist",
     "clean": "rm -rf dist",
     "test": "bun test",
     "test:login": "bun run scripts/test-login.ts",

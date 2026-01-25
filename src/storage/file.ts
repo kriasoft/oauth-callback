@@ -8,8 +8,8 @@ import type { TokenStore, Tokens } from "../mcp-types";
 
 /**
  * Persistent file-based token storage.
+ * Not safe for concurrent access across multiple processes.
  * Default: ~/.mcp/tokens.json
- * WARNING: Not safe for concurrent access across processes.
  */
 export function fileStore(filepath?: string): TokenStore {
   const file = filepath ?? path.join(os.homedir(), ".mcp", "tokens.json");
@@ -29,8 +29,9 @@ export function fileStore(filepath?: string): TokenStore {
 
   async function writeStore(data: Record<string, Tokens>) {
     await ensureDir();
-    // TODO: Atomic write via temp file + rename
-    await fs.writeFile(file, JSON.stringify(data, null, 2), "utf-8");
+    const tmp = `${file}.tmp.${process.pid}`;
+    await fs.writeFile(tmp, JSON.stringify(data, null, 2), "utf-8");
+    await fs.rename(tmp, file);
   }
 
   return {
@@ -49,10 +50,6 @@ export function fileStore(filepath?: string): TokenStore {
       const store = await readStore();
       delete store[key];
       await writeStore(store);
-    },
-
-    async clear(): Promise<void> {
-      await writeStore({});
     },
   };
 }

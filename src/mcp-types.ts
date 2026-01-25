@@ -24,35 +24,33 @@ export interface ClientInfo {
 }
 
 /**
- * Active OAuth flow state for crash recovery.
- * Preserves PKCE verifier and state across process restarts.
- */
-export interface OAuthSession {
-  codeVerifier?: string;
-  state?: string;
-}
-
-/**
  * Minimal storage interface for OAuth tokens.
- * @invariant Implementations must be thread-safe within process.
  * @invariant Keys are scoped to avoid collisions between multiple OAuth flows.
  */
 export interface TokenStore {
   get(key: string): Promise<Tokens | null>;
   set(key: string, tokens: Tokens): Promise<void>;
   delete(key: string): Promise<void>;
-  clear(): Promise<void>;
 }
 
+/** Brand symbol for OAuthStore type detection. */
+export const OAuthStoreBrand: unique symbol = Symbol("OAuthStore");
+
 /**
- * Full OAuth state storage including client registration and session.
- * Enables recovery from crashes mid-flow and reuse of dynamic registration.
+ * Extended storage with client registration and PKCE verifier persistence.
+ * Enables crash recovery mid-flow and reuse of dynamic registration.
+ * @invariant Implementations must include `[OAuthStoreBrand]: true` property.
  */
 export interface OAuthStore extends TokenStore {
+  readonly [OAuthStoreBrand]: true;
+
   getClient(key: string): Promise<ClientInfo | null>;
   setClient(key: string, client: ClientInfo): Promise<void>;
-  getSession(key: string): Promise<OAuthSession | null>;
-  setSession(key: string, session: OAuthSession): Promise<void>;
+  deleteClient(key: string): Promise<void>;
+
+  getCodeVerifier(key: string): Promise<string | null>;
+  setCodeVerifier(key: string, verifier: string): Promise<void>;
+  deleteCodeVerifier(key: string): Promise<void>;
 }
 
 /**
@@ -61,8 +59,16 @@ export interface OAuthStore extends TokenStore {
  * @see https://datatracker.ietf.org/doc/html/rfc8252
  */
 export interface BrowserAuthOptions {
-  /** Pre-registered OAuth client credentials. Omit for dynamic registration. */
+  /**
+   * Pre-registered OAuth client ID. Omit to use dynamic client registration.
+   * When provided, takes precedence over any DCR-obtained client.
+   */
   clientId?: string;
+  /**
+   * Pre-registered client secret (for confidential clients).
+   * Determines auth method for token requests: `client_secret_post` if set, `none` otherwise.
+   * This is fixed at construction - DCR-obtained secrets don't change the auth method.
+   */
   clientSecret?: string;
 
   scope?: string;
@@ -87,4 +93,11 @@ export interface BrowserAuthOptions {
 
   /** Request inspection callback for debugging OAuth flows. */
   onRequest?: (req: Request) => void;
+
+  /**
+   * Authorization server base URL (issuer) for token endpoint discovery.
+   * Pass the origin (e.g., `https://auth.example.com`), not `/token`.
+   * Defaults to the authorization URL origin. Discovery failures are non-fatal.
+   */
+  authServerUrl?: string | URL;
 }

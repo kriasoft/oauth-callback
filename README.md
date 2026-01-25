@@ -127,6 +127,8 @@ import { browserAuth, inMemoryStore } from "oauth-callback/mcp";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 
+const serverUrl = new URL("https://mcp.notion.com/mcp");
+
 // Create MCP-compatible OAuth provider
 const authProvider = browserAuth({
   port: 3000,
@@ -135,18 +137,29 @@ const authProvider = browserAuth({
   store: inMemoryStore(), // Or fileStore() for persistence
 });
 
-// Use with MCP SDK transport
-const transport = new StreamableHTTPClientTransport(
-  new URL("https://mcp.notion.com/mcp"),
-  { authProvider },
-);
-
 const client = new Client(
   { name: "my-app", version: "1.0.0" },
   { capabilities: {} },
 );
 
-await client.connect(transport);
+// Connect with OAuth retry: first attempt completes OAuth and saves tokens,
+// but SDK returns before checking them. Second attempt succeeds.
+async function connectWithOAuthRetry() {
+  const transport = new StreamableHTTPClientTransport(serverUrl, {
+    authProvider,
+  });
+  try {
+    await client.connect(transport);
+  } catch (error: any) {
+    if (error.message === "Unauthorized") {
+      await client.connect(
+        new StreamableHTTPClientTransport(serverUrl, { authProvider }),
+      );
+    } else throw error;
+  }
+}
+
+await connectWithOAuthRetry();
 ```
 
 #### Token Storage Options
@@ -275,7 +288,7 @@ class OAuthError extends Error {
 
 ### `browserAuth(options)`
 
-Available from `oauth-callback/mcp`. Creates an MCP SDK-compatible OAuth provider for browser-based flows. Handles Dynamic Client Registration (DCR), token storage, and automatic refresh.
+Available from `oauth-callback/mcp`. Creates an MCP SDK-compatible OAuth provider for browser-based flows. Handles Dynamic Client Registration (DCR) and token storage. Expired tokens trigger re-authentication.
 
 #### Parameters
 

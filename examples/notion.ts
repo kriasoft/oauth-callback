@@ -14,8 +14,42 @@
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
 import open from "open";
 import { browserAuth, inMemoryStore } from "../src/mcp";
+
+/**
+ * Connect with OAuth retry handling.
+ *
+ * The MCP SDK's auth flow returns 'REDIRECT' after `redirectToAuthorization()`
+ * completes, without re-checking for tokens. For in-process OAuth (CLI/desktop),
+ * tokens ARE saved but the SDK doesn't know—causing an initial UnauthorizedError.
+ * Retry succeeds because tokens exist.
+ */
+async function connectWithOAuthRetry(
+  client: Client,
+  serverUrl: URL,
+  authProvider: OAuthClientProvider,
+): Promise<void> {
+  const createTransport = () =>
+    new StreamableHTTPClientTransport(serverUrl, { authProvider });
+
+  try {
+    await client.connect(createTransport());
+  } catch (error: unknown) {
+    const isUnauthorized =
+      error instanceof Error &&
+      (error.constructor.name === "UnauthorizedError" ||
+        error.message === "Unauthorized");
+
+    if (isUnauthorized) {
+      // Tokens were saved during first attempt; fresh transport succeeds
+      await client.connect(createTransport());
+    } else {
+      throw error;
+    }
+  }
+}
 
 async function main() {
   console.log("🚀 Starting OAuth flow example with Notion MCP Server\n");
@@ -36,97 +70,27 @@ async function main() {
       const url = new URL(req.url);
       console.log(`📨 Received ${req.method} request to ${url.pathname}`);
     },
-  }) as any; // Cast required: getPendingAuthCode() is SDK workaround, not public API
+  });
 
   try {
     console.log("🔌 Connecting to Notion MCP server...");
 
-    const transport = new StreamableHTTPClientTransport(serverUrl, {
-      authProvider,
-    });
-
     const client = new Client(
-      {
-        name: "oauth-callback-example",
-        version: "1.0.0",
-      },
-      {
-        capabilities: {},
-      },
+      { name: "oauth-callback-example", version: "1.0.0" },
+      { capabilities: {} },
     );
 
-    // Initial connect triggers OAuth flow when no valid tokens exist
-    try {
-      await client.connect(transport);
-      console.log("\n🎉 Successfully connected with existing credentials!");
+    await connectWithOAuthRetry(client, serverUrl, authProvider);
 
-      await listServerCapabilities(client);
-      await client.close();
-    } catch (error: any) {
-      if (error.constructor.name === "UnauthorizedError") {
-        console.log("\n📋 Authorization required. Opening browser...");
-        console.log(
-          "   (If browser doesn't open, check the terminal for the URL)\n",
-        );
-
-        // SDK workaround: retrieve auth code captured during redirectToAuthorization()
-        const pendingAuth = authProvider.getPendingAuthCode();
-
-        if (pendingAuth?.code) {
-          console.log("\n✅ Authorization callback received!");
-          console.log("   Code:", pendingAuth.code);
-          console.log("   State:", pendingAuth.state);
-
-          console.log("\n🔄 Exchanging authorization code for access token...");
-
-          await transport.finishAuth(pendingAuth.code);
-
-          console.log("\n✅ Token exchange successful!");
-          console.log("\n🔌 Creating new connection with authentication...");
-
-          // SDK constraint: transport cannot be reused after finishAuth()
-          const newTransport = new StreamableHTTPClientTransport(serverUrl, {
-            authProvider,
-          });
-          const newClient = new Client(
-            {
-              name: "oauth-callback-example",
-              version: "1.0.0",
-            },
-            {
-              capabilities: {},
-            },
-          );
-
-          await newClient.connect(newTransport);
-          console.log(
-            "\n🎉 Successfully authenticated with Notion MCP server!",
-          );
-
-          await listServerCapabilities(newClient);
-          await newClient.close();
-        } else {
-          throw new Error("Failed to get authorization code");
-        }
-      } else {
-        throw error;
-      }
-    }
+    console.log("\n🎉 Successfully connected to Notion MCP server!");
+    await listServerCapabilities(client);
+    await client.close();
 
     console.log("\n✨ OAuth flow completed successfully!");
     process.exit(0);
   } catch (error) {
     if (error instanceof Error) {
-      if (
-        error.message.includes("Unauthorized") ||
-        error.message.includes("401")
-      ) {
-        console.log(
-          "\n⚠️  Authorization required. Please check the browser for the authorization page.",
-        );
-      } else {
-        console.error("\n❌ Failed to authenticate:", error.message);
-      }
+      console.error("\n❌ Failed to authenticate:", error.message);
     } else {
       console.error("\n❌ Unexpected error:", error);
     }
