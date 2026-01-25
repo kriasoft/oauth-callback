@@ -1,4 +1,279 @@
 ---
+url: /oauth-callback/adr/001-no-refresh-tokens.md
+---
+# ADR-001: No Refresh Tokens in browserAuth
+
+**Status:** Accepted
+**Date:** 2025-01-25
+**Tags:** oauth, mcp, security
+
+## Problem
+
+* Should `browserAuth` handle OAuth refresh tokens and automatic token renewal?
+
+## Decision
+
+* `browserAuth` intentionally does not request or handle refresh tokens.
+* When tokens expire, `tokens()` returns `undefined`, signaling the MCP SDK to re-authenticate.
+* The SDK's built-in retry logic handles re-auth transparently.
+
+Rationale:
+
+* **MCP SDK lifecycle**: The SDK expects auth providers to return `undefined` for expired tokens, triggering its standard re-auth flow.
+* **CLI/desktop UX**: Interactive re-consent is acceptable and often preferred over silent background refresh.
+* **Simplicity**: Avoiding refresh eliminates token rotation complexity, race conditions, and concurrent refresh handling.
+* **Security**: No long-lived refresh tokens stored; each session requires explicit user consent.
+
+## Alternatives (brief)
+
+* **Implement refresh flow** — Adds complexity (token rotation, concurrency), conflicts with SDK's re-auth expectations, stores long-lived credentials.
+* **Optional refresh via config** — Increases API surface, creates two divergent code paths to maintain.
+
+## Impact
+
+* Positive: Simpler implementation, predictable behavior, aligns with MCP SDK design.
+* Negative/Risks: More frequent browser prompts for long-running sessions (acceptable for CLI tools).
+
+## Links
+
+* Code: `src/auth/browser-auth.ts`
+* Related: MCP SDK auth interface in `@modelcontextprotocol/sdk/client/auth`
+
+---
+
+---
+url: /oauth-callback/adr/002-immediate-token-exchange.md
+---
+# ADR-002: Immediate Token Exchange in redirectToAuthorization()
+
+**Status:** Accepted
+**Date:** 2025-01-25
+**Tags:** oauth, mcp, sdk-integration
+
+## Problem
+
+The MCP SDK's `auth()` flow works as follows:
+
+1. Check `provider.tokens()` — if valid tokens exist, return `'AUTHORIZED'`
+2. If no tokens, start authorization: call `redirectToAuthorization(url)`
+3. **Immediately** return `'REDIRECT'` (without re-checking tokens)
+
+For web-based OAuth, this makes sense: `redirectToAuthorization()` triggers a page redirect and control never returns synchronously. The SDK expects authentication to complete in a subsequent request.
+
+For CLI/desktop apps using `browserAuth()`, control **does** return synchronously—we capture the callback in-process via a local HTTP server. We exchange tokens inside `redirectToAuthorization()`, but the SDK has already decided to return `'REDIRECT'`, causing `UnauthorizedError`.
+
+## Decision
+
+Exchange tokens **inside** `redirectToAuthorization()` and document the retry pattern as the expected usage:
+
+```typescript
+// First connect triggers OAuth flow and saves tokens, but SDK returns
+// 'REDIRECT' before checking. Second connect finds valid tokens.
+async function connectWithOAuthRetry(client, serverUrl, authProvider) {
+  const transport = new StreamableHTTPClientTransport(serverUrl, {
+    authProvider,
+  });
+  try {
+    await client.connect(transport);
+  } catch (error) {
+    if (error.message === "Unauthorized") {
+      await client.connect(
+        new StreamableHTTPClientTransport(serverUrl, { authProvider }),
+      );
+    } else throw error;
+  }
+}
+```
+
+**Why a new transport on retry?** The transport caches connection state internally. A fresh transport ensures clean reconnection.
+
+## Rationale
+
+* **SDK constraint**: No hook exists between redirect completion and the `'REDIRECT'` return. The SDK interface (`Promise<void>`) cannot signal "auth completed."
+* **In-process capture**: CLI apps don't have page redirects that would trigger a fresh auth check cycle.
+* **Correctness over elegance**: The retry is unusual but reliable—tokens are always saved before the error.
+
+## Alternatives Considered
+
+| Alternative                                    | Why Rejected                                                  |
+| ---------------------------------------------- | ------------------------------------------------------------- |
+| `transport.finishAuth(callbackUrl)`            | Breaks provider encapsulation; doesn't fit in-process capture |
+| Return tokens from `redirectToAuthorization()` | SDK interface expects `Promise<void>`                         |
+| Upstream SDK change                            | Not viable for library consumers                              |
+
+## Impact
+
+* **Positive**: Self-contained auth flow; no external coordination needed
+* **Negative**: First connection always throws `UnauthorizedError` after OAuth—must be documented clearly
+
+## Links
+
+* Code: `src/auth/browser-auth.ts` lines 254-368
+* MCP SDK auth interface: `@modelcontextprotocol/sdk/client/auth.js`
+* Related: ADR-001 (no refresh tokens)
+
+---
+
+---
+url: /oauth-callback/adr/003-stable-client-metadata.md
+---
+# ADR-003: Stable Client Metadata Across DCR
+
+**Status:** Accepted
+**Date:** 2025-01-25
+**Tags:** oauth, dcr, security
+
+## Problem
+
+* During Dynamic Client Registration (DCR), the authorization server may return different capabilities than requested (e.g., `token_endpoint_auth_method`).
+* If `clientMetadata` adapts to DCR responses, subsequent token requests may fail when the AS caches the original registration metadata.
+
+## Decision
+
+* `clientMetadata` is immutable after construction.
+* `token_endpoint_auth_method` is determined at construction: `client_secret_post` if `clientSecret` is provided, `none` otherwise. DCR responses never change this value.
+* DCR credentials (`client_id`, `client_secret`) are stored separately and never mutate the auth method.
+
+## Alternatives (brief)
+
+* **Dynamic metadata evolution** — Adapting to DCR responses seems flexible but causes cache mismatches with AS that remember original registration.
+* **Per-request method detection** — Adds complexity and non-deterministic behavior across retries.
+
+## Impact
+
+* Positive: Predictable behavior with all AS implementations; eliminates cache-related auth failures.
+* Negative/Risks: None identified; the fixed method (`client_secret_post`) has universal support.
+
+## Links
+
+* Code: `src/auth/browser-auth.ts`
+* Related ADRs: ADR-001 (No Refresh Tokens), ADR-002 (Immediate Token Exchange)
+
+---
+
+---
+url: /oauth-callback/adr/004-conditional-state-validation.md
+---
+# ADR-004: Conditional OAuth State Validation
+
+**Status:** Accepted
+**Date:** 2025-01-25
+**Tags:** oauth, security, csrf
+
+## Problem
+
+* RFC 6749 recommends `state` for CSRF protection, but RFC 8252 (native apps) relies on loopback redirect for security.
+* Some authorization servers don't echo `state` back; others require it.
+* Strict validation breaks compatibility; no validation weakens security.
+
+## Decision
+
+* Validate `state` only if it was present in the authorization URL.
+* If the auth URL includes `state` and the callback doesn't match, reject as CSRF.
+* If the auth URL omits `state`, accept callbacks without state validation.
+
+Rationale:
+
+* **Defense-in-depth**: Loopback binding (127.0.0.1) prevents network CSRF, but state adds protection against local attacks (malicious apps, browser extensions intercepting localhost).
+* **CLI threat model**: Unlike web apps, CLI tools face local machine threats—other processes can probe localhost ports. State validation detects if a callback arrives from an unrelated auth flow.
+* **Compatibility**: Authorization servers have inconsistent state handling. Conditional validation works with all servers while providing protection when available.
+
+## Alternatives (brief)
+
+* **Always require state** — Breaks servers that don't echo state or don't support it.
+* **Never validate state** — Loopback provides baseline security, but ignores state when the AS cooperates.
+* **Generate state internally always** — Conflicts with auth URLs that already include state from the MCP SDK.
+
+## Impact
+
+* Positive: Maximum security when AS supports state; universal compatibility otherwise.
+* Negative/Risks: If an AS echoes arbitrary state values without validation, the protection is weaker (rare edge case).
+
+## Links
+
+* Code: `src/auth/browser-auth.ts:297-300`
+* RFC 6749 Section 10.12 (CSRF Protection)
+* RFC 8252 Section 8.1 (Loopback Redirect)
+
+---
+
+---
+url: /oauth-callback/adr/005-store-responsibility-reduction.md
+---
+# ADR-005: OAuthStore Responsibility Reduction
+
+**Status:** Accepted
+**Date:** 2025-01-25
+**Tags:** api, storage, simplification
+
+## Problem
+
+The store was accumulating OAuth flow state (session, nonce, state parameter) alongside persistent data (tokens, client registration). This blurred the line between "what survives a crash" and "what's ephemeral by design," making the API harder to reason about and test.
+
+## Decision
+
+The store is responsible **only** for data that must survive process restarts:
+
+| Stored                | Not Stored        |
+| --------------------- | ----------------- |
+| `tokens`              | `state` parameter |
+| `client` (DCR result) | `nonce`           |
+| `codeVerifier` (PKCE) | session objects   |
+
+The `codeVerifier` is the sole flow artifact persisted—it enables completing an in-progress authorization if the process crashes after browser launch but before callback.
+
+## Alternatives (brief)
+
+* **Full session persistence** — Would enable crash-recovery at any point, but adds complexity for a rare edge case. Users can simply restart the flow.
+* **No verifier persistence** — Simpler, but loses the most common crash scenario (user switches apps, process dies).
+
+## Impact
+
+* Positive: Cleaner mental model; store implementations are trivial to write and test.
+* Negative: If the process crashes before `codeVerifier` is saved, the flow must restart. This is acceptable—it's a sub-second window.
+
+## Links
+
+* Code: `src/storage/`, `src/mcp-types.ts`
+* Related: ADR-002 (Immediate Token Exchange)
+
+---
+
+---
+url: /oauth-callback/adr/000-template.md
+---
+# ADR-NNN Title
+
+**Status:** Proposed | Accepted | Deprecated | Superseded\
+**Date:** YYYY-MM-DD\
+**Tags:** tag1, tag2
+
+## Problem
+
+* One or two sentences on the decision trigger or constraint.
+
+## Decision
+
+* The chosen approach in a short paragraph.
+
+## Alternatives (brief)
+
+* Option A — why not.
+* Option B — why not.
+
+## Impact
+
+* Positive:
+* Negative/Risks:
+
+## Links
+
+* Code/Docs:
+* Related ADRs:
+
+---
+
+---
 url: /oauth-callback/api.md
 description: >-
   Complete API documentation for OAuth Callback library functions, types, and
@@ -22,7 +297,7 @@ OAuth Callback provides a comprehensive set of APIs for handling OAuth 2.0 autho
 * **inMemoryStore** - Ephemeral in-memory token storage
 * **fileStore** - Persistent file-based token storage
 
-### Error Handling
+### Errors
 
 * [**OAuthError**](/api/oauth-error) - OAuth-specific error class with RFC 6749 compliance
 
@@ -107,15 +382,16 @@ interface TokenStore {
   get(key: string): Promise<Tokens | null>;
   set(key: string, tokens: Tokens): Promise<void>;
   delete(key: string): Promise<void>;
-  clear(): Promise<void>;
 }
 
-// Extended storage with DCR support
+// Extended storage with DCR and PKCE support
 interface OAuthStore extends TokenStore {
   getClient(key: string): Promise<ClientInfo | null>;
   setClient(key: string, client: ClientInfo): Promise<void>;
-  getSession(key: string): Promise<OAuthSession | null>;
-  setSession(key: string, session: OAuthSession): Promise<void>;
+  deleteClient(key: string): Promise<void>;
+  getCodeVerifier(key: string): Promise<string | null>;
+  setCodeVerifier(key: string, verifier: string): Promise<void>;
+  deleteCodeVerifier(key: string): Promise<void>;
 }
 ```
 
@@ -247,7 +523,7 @@ const transport = new StreamableHTTPClientTransport(
 );
 ```
 
-### Error Handling
+### Handling Errors
 
 ```typescript
 import { getAuthCode, OAuthError } from "oauth-callback";
@@ -418,20 +694,40 @@ const authProvider = browserAuth({ launch: open, store: fileStore() });
 
 ## API Stability
 
-| API             | Status | Since  | Notes                         |
-| --------------- | ------ | ------ | ----------------------------- |
-| `getAuthCode`   | Stable | v1.0.0 | Core API, backward compatible |
-| `browserAuth`   | Stable | v2.0.0 | MCP integration               |
-| `OAuthError`    | Stable | v1.0.0 | Error handling                |
-| `inMemoryStore` | Stable | v2.0.0 | Storage provider              |
-| `fileStore`     | Stable | v2.0.0 | Storage provider              |
-| Types           | Stable | v1.0.0 | TypeScript definitions        |
+| API              | Status | Since  | Notes                         |
+| ---------------- | ------ | ------ | ----------------------------- |
+| `getAuthCode`    | Stable | v1.0.0 | Core API, backward compatible |
+| `getRedirectUrl` | Stable | v1.0.0 | Redirect URI helper           |
+| `OAuthError`     | Stable | v1.0.0 | OAuth-specific errors         |
+| `TimeoutError`   | Stable | v1.0.0 | Timeout error class           |
+| `mcp`            | Stable | v2.0.0 | MCP namespace export          |
+| `browserAuth`    | Stable | v2.0.0 | MCP integration               |
+| `inMemoryStore`  | Stable | v2.0.0 | Storage provider              |
+| `fileStore`      | Stable | v2.0.0 | Storage provider              |
+| Types            | Stable | v1.0.0 | TypeScript definitions        |
 
 ## Related Resources
 
 * [Core Concepts](/core-concepts) - Architecture and design patterns
 * [Getting Started](/getting-started) - Quick start guide
 * [GitHub Repository](https://github.com/kriasoft/oauth-callback) - Source code and issues
+
+---
+
+---
+url: /oauth-callback/adr.md
+---
+# Architecture Decision Records
+
+Key design decisions with context and rationale.
+
+| ADR                                            | Decision                                              |
+| ---------------------------------------------- | ----------------------------------------------------- |
+| [001](./001-no-refresh-tokens.md)              | No refresh tokens—rely on MCP SDK's re-auth flow      |
+| [002](./002-immediate-token-exchange.md)       | Token exchange inside `redirectToAuthorization()`     |
+| [003](./003-stable-client-metadata.md)         | Immutable client metadata across DCR                  |
+| [004](./004-conditional-state-validation.md)   | Validate `state` only when present in auth URL        |
+| [005](./005-store-responsibility-reduction.md) | Store persists only tokens, client, and PKCE verifier |
 
 ---
 
@@ -444,7 +740,7 @@ description: >-
 
 # browserAuth
 
-The `browserAuth` function creates an OAuth provider that integrates seamlessly with the Model Context Protocol (MCP) SDK. It handles the entire OAuth flow including Dynamic Client Registration, token management, and automatic refresh — all through a browser-based authorization flow.
+The `browserAuth` function creates an OAuth provider that integrates seamlessly with the Model Context Protocol (MCP) SDK. It handles the entire OAuth flow including Dynamic Client Registration and token storage through a browser-based authorization flow. Expired tokens trigger re-authentication; refresh tokens are not used.
 
 ## Function Signature
 
@@ -456,21 +752,22 @@ function browserAuth(options?: BrowserAuthOptions): OAuthClientProvider;
 
 ### BrowserAuthOptions
 
-| Property       | Type                       | Default           | Description                        |
-| -------------- | -------------------------- | ----------------- | ---------------------------------- |
-| `clientId`     | `string`                   | *none*            | Pre-registered OAuth client ID     |
-| `clientSecret` | `string`                   | *none*            | Pre-registered OAuth client secret |
-| `scope`        | `string`                   | *none*            | OAuth scopes to request            |
-| `port`         | `number`                   | `3000`            | Port for local callback server     |
-| `hostname`     | `string`                   | `"localhost"`     | Hostname to bind server to         |
-| `callbackPath` | `string`                   | `"/callback"`     | URL path for OAuth callback        |
-| `store`        | `TokenStore`               | `inMemoryStore()` | Token storage implementation       |
-| `storeKey`     | `string`                   | `"mcp-tokens"`    | Storage key for token isolation    |
-| `launch`       | `(url: string) => unknown` | *none*            | Callback to launch auth URL        |
-| `authTimeout`  | `number`                   | `300000`          | Auth timeout in ms (5 min)         |
-| `successHtml`  | `string`                   | *built-in*        | Custom success page HTML           |
-| `errorHtml`    | `string`                   | *built-in*        | Custom error page HTML             |
-| `onRequest`    | `(req: Request) => void`   | *none*            | Request logging callback           |
+| Property        | Type                       | Default           | Description                                                                                                                                   |
+| --------------- | -------------------------- | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `clientId`      | `string`                   | *none*            | Pre-registered OAuth client ID                                                                                                                |
+| `clientSecret`  | `string`                   | *none*            | Pre-registered OAuth client secret                                                                                                            |
+| `scope`         | `string`                   | *none*            | OAuth scopes to request. When omitted, the auth server uses its default scope.                                                                |
+| `port`          | `number`                   | `3000`            | Port for local callback server                                                                                                                |
+| `hostname`      | `string`                   | `"localhost"`     | Hostname to bind server to                                                                                                                    |
+| `callbackPath`  | `string`                   | `"/callback"`     | URL path for OAuth callback                                                                                                                   |
+| `store`         | `TokenStore`               | `inMemoryStore()` | Token storage implementation                                                                                                                  |
+| `storeKey`      | `string`                   | `"mcp-tokens"`    | Storage key for token isolation                                                                                                               |
+| `launch`        | `(url: string) => unknown` | *none*            | Callback to launch auth URL                                                                                                                   |
+| `authTimeout`   | `number`                   | `300000`          | Auth timeout in ms (5 min)                                                                                                                    |
+| `successHtml`   | `string`                   | *built-in*        | Custom success page HTML                                                                                                                      |
+| `errorHtml`     | `string`                   | *built-in*        | Custom error page HTML                                                                                                                        |
+| `onRequest`     | `(req: Request) => void`   | *none*            | Request logging callback                                                                                                                      |
+| `authServerUrl` | `string \| URL`            | *auto*            | Base URL for OAuth metadata discovery. Defaults to the authorization URL's origin. Set this when the token endpoint is on a different origin. |
 
 ## Return Value
 
@@ -478,10 +775,10 @@ Returns an `OAuthClientProvider` instance that implements the MCP SDK authentica
 
 ```typescript
 interface OAuthClientProvider {
-  // Called by MCP SDK for authentication
+  // Completes full OAuth flow: browser → callback → token exchange → persist
   redirectToAuthorization(authorizationUrl: URL): Promise<void>;
 
-  // Token management
+  // Token storage
   tokens(): Promise<OAuthTokens | undefined>;
   saveTokens(tokens: OAuthTokens): Promise<void>;
 
@@ -753,7 +1050,6 @@ interface TokenStore {
   get(key: string): Promise<Tokens | null>;
   set(key: string, tokens: Tokens): Promise<void>;
   delete(key: string): Promise<void>;
-  clear(): Promise<void>;
 }
 ```
 
@@ -763,8 +1059,10 @@ interface TokenStore {
 interface OAuthStore extends TokenStore {
   getClient(key: string): Promise<ClientInfo | null>;
   setClient(key: string, client: ClientInfo): Promise<void>;
-  getSession(key: string): Promise<OAuthSession | null>;
-  setSession(key: string, session: OAuthSession): Promise<void>;
+  deleteClient(key: string): Promise<void>;
+  getCodeVerifier(key: string): Promise<string | null>;
+  setCodeVerifier(key: string, verifier: string): Promise<void>;
+  deleteCodeVerifier(key: string): Promise<void>;
 }
 ```
 
@@ -839,14 +1137,6 @@ class RedisStore implements TokenStore {
   async delete(key: string): Promise<void> {
     await this.redis.del(key);
   }
-
-  async clear(): Promise<void> {
-    // Clear all tokens with pattern matching
-    const keys = await this.redis.keys("mcp-tokens:*");
-    if (keys.length > 0) {
-      await this.redis.del(...keys);
-    }
-  }
 }
 
 // Use custom store
@@ -870,25 +1160,19 @@ PKCE prevents authorization code interception attacks by:
 
 ### State Parameter
 
-The provider automatically generates secure state parameters:
+The `state()` method generates secure random values when called by the MCP SDK. State validation in `browserAuth` compares the callback's state against the state parameter in the authorization URL that was passed to `redirectToAuthorization()`. This means validation works regardless of whether `state()` was used - it validates whatever state is present in the URL.
 
-```typescript
-import open from "open";
-
-// State is automatically generated and validated
-const authProvider = browserAuth({ launch: open });
-// No manual state handling needed!
-```
+For localhost flows, [RFC 8252](https://www.rfc-editor.org/rfc/rfc8252) considers loopback interface binding sufficient for security. State validation adds defense-in-depth.
 
 ### Token Expiry Management
 
-Tokens are automatically managed with expiry tracking:
+Tokens are tracked with expiry times. The provider returns `undefined` from `tokens()` 60 seconds before actual expiry to prevent mid-request failures. This triggers re-authentication before tokens become invalid:
 
 ```typescript
-// The provider automatically:
-// 1. Tracks token expiry time
-// 2. Returns undefined for expired tokens
-// 3. Attempts refresh when refresh tokens are available
+// The provider:
+// 1. Returns undefined 60s before token expiry
+// 2. SDK triggers re-auth when tokens() returns undefined
+// 3. Requests never fail due to mid-flight token expiry
 ```
 
 ### Secure Storage
@@ -923,17 +1207,6 @@ try {
     console.error("Connection failed:", error);
   }
 }
-```
-
-### Retry Logic
-
-The provider includes automatic retry for transient failures:
-
-```typescript
-// Built-in retry logic:
-// - 3 attempts for authorization
-// - Exponential backoff between retries
-// - OAuth errors are not retried (user-actionable)
 ```
 
 ### Timeout Handling
@@ -1049,47 +1322,15 @@ const authProvider = createAuthProvider(
 );
 ```
 
-### Token Refresh Implementation
+### Handling Expired Tokens
 
-While automatic refresh is pending full implementation, you can handle expired tokens:
+The provider does not use refresh tokens. When tokens expire, re-authentication is triggered automatically by returning `undefined` from `tokens()`. The MCP SDK handles this transparently.
+
+For explicit control over re-authentication:
 
 ```typescript
-import open from "open";
-import { browserAuth, fileStore } from "oauth-callback/mcp";
-
-const authProvider = browserAuth({
-  launch: open,
-  store: fileStore(),
-  scope: "offline_access", // Request refresh token
-});
-
-async function withTokenRefresh(client: Client, operation: () => Promise<any>) {
-  try {
-    return await operation();
-  } catch (error) {
-    if (
-      error.message.includes("401") ||
-      error.message.includes("unauthorized")
-    ) {
-      console.log("Token expired, re-authenticating...");
-
-      // Clear expired tokens
-      await authProvider.invalidateCredentials("tokens");
-
-      // Reconnect (will trigger new auth)
-      await client.reconnect();
-
-      // Retry operation
-      return await operation();
-    }
-    throw error;
-  }
-}
-
-// Use with automatic retry
-const result = await withTokenRefresh(client, async () => {
-  return await client.callTool("get-data", {});
-});
+// Force re-authentication by clearing tokens
+await authProvider.invalidateCredentials("tokens");
 ```
 
 ## Testing
@@ -1240,19 +1481,18 @@ const authProvider = browserAuth({
 
 The `browserAuth` provider implements the MCP SDK's `OAuthClientProvider` interface:
 
-| Method                    | Status               | Notes                      |
-| ------------------------- | -------------------- | -------------------------- |
-| `redirectToAuthorization` | ✅ Fully supported   | Opens browser for auth     |
-| `tokens`                  | ✅ Fully supported   | Returns current tokens     |
-| `saveTokens`              | ✅ Fully supported   | Persists to storage        |
-| `clientInformation`       | ✅ Fully supported   | Returns client credentials |
-| `saveClientInformation`   | ✅ Fully supported   | Stores DCR results         |
-| `state`                   | ✅ Fully supported   | Generates secure state     |
-| `codeVerifier`            | ✅ Fully supported   | PKCE verifier              |
-| `saveCodeVerifier`        | ✅ Fully supported   | Stores PKCE verifier       |
-| `invalidateCredentials`   | ✅ Fully supported   | Clears stored data         |
-| `validateResourceURL`     | ✅ Returns undefined | Not applicable             |
-| `getPendingAuthCode`      | ✅ Internal use      | Used by SDK                |
+| Method                    | Status               | Notes                                                                     |
+| ------------------------- | -------------------- | ------------------------------------------------------------------------- |
+| `redirectToAuthorization` | ✅ Fully supported   | Completes full OAuth flow (browser → callback → token exchange → persist) |
+| `tokens`                  | ✅ Fully supported   | Returns current tokens                                                    |
+| `saveTokens`              | ✅ Fully supported   | Persists to storage                                                       |
+| `clientInformation`       | ✅ Fully supported   | Returns client credentials                                                |
+| `saveClientInformation`   | ✅ Fully supported   | Stores DCR results                                                        |
+| `state`                   | ✅ Fully supported   | Generates secure state                                                    |
+| `codeVerifier`            | ✅ Fully supported   | PKCE verifier                                                             |
+| `saveCodeVerifier`        | ✅ Fully supported   | Stores PKCE verifier                                                      |
+| `invalidateCredentials`   | ✅ Fully supported   | Clears stored data                                                        |
+| `validateResourceURL`     | ✅ Returns undefined | Not applicable                                                            |
 
 ## Migration Guide
 
@@ -1325,7 +1565,7 @@ The authorization code flow provides several security benefits:
 * **No token exposure**: Access tokens never pass through the browser
 * **Short-lived codes**: Authorization codes expire quickly (typically 10 minutes)
 * **Server verification**: The auth server can verify the client's identity
-* **Refresh capability**: Supports refresh tokens for long-lived access
+* **PKCE support**: Protection against authorization code interception
 
 ## The Localhost Callback Pattern
 
@@ -1335,7 +1575,7 @@ The core innovation of OAuth Callback is making the localhost callback pattern t
 
 Traditional web applications have public URLs where OAuth providers can send callbacks:
 
-```
+```text
 https://myapp.com/oauth/callback?code=xyz123
 ```
 
@@ -1402,13 +1642,12 @@ The heart of OAuth Callback is a lightweight HTTP server that:
 * Serves success/error HTML pages
 * Implements proper cleanup on completion
 
-```typescript
-// Internally, the server handles:
-- Request routing (/callback path matching)
-- Query parameter extraction (code, state, error)
-- HTML template rendering with placeholders
-- Graceful shutdown after callback
-```
+Internally, the server handles:
+
+* Request routing (`/callback` path matching)
+* Query parameter extraction (`code`, `state`, `error`)
+* HTML template rendering with placeholders
+* Graceful shutdown after callback
 
 #### 2. The Authorization Handler (`getAuthCode`)
 
@@ -1454,7 +1693,7 @@ The `TokenStore` interface enables different storage strategies:
 
 ```typescript
 interface TokenStore {
-  get(key: string): Promise<Tokens | undefined>;
+  get(key: string): Promise<Tokens | null>;
   set(key: string, tokens: Tokens): Promise<void>;
   delete(key: string): Promise<void>;
 }
@@ -1484,12 +1723,14 @@ const store = fileStore("~/.myapp/tokens.json");
 
 ### Token Lifecycle
 
+OAuth Callback uses re-authentication instead of refresh tokens. When tokens expire, the provider returns `undefined`, signaling the MCP SDK to re-initiate the OAuth flow. This simplifies implementation and avoids storing long-lived refresh credentials.
+
 ```mermaid
 stateDiagram-v2
     [*] --> NoToken: Initial State
     NoToken --> Authorizing: User initiates OAuth
     Authorizing --> HasToken: Successful auth
-    HasToken --> Authorizing: Token expired
+    HasToken --> Authorizing: Token expired (re-auth)
     HasToken --> NoToken: User logs out
 ```
 
@@ -1522,11 +1763,17 @@ The `browserAuth()` function returns an `OAuthClientProvider` that integrates wi
 
 ```typescript
 interface OAuthClientProvider {
-  // Called by MCP SDK when authentication is needed
-  authenticate(params: AuthenticationParams): Promise<AuthenticationResult>;
+  // Token access - returns undefined when expired, triggering re-auth
+  tokens(): Promise<OAuthTokens | undefined>;
+  saveTokens(tokens: OAuthTokens): Promise<void>;
 
-  // Manages token refresh automatically
-  refreshToken?(params: RefreshParams): Promise<RefreshResult>;
+  // Completes full OAuth flow (browser → callback → token exchange)
+  redirectToAuthorization(authorizationUrl: URL): Promise<void>;
+
+  // PKCE and state management
+  codeVerifier(): Promise<string>;
+  saveCodeVerifier(verifier: string): Promise<void>;
+  state(): Promise<string>;
 }
 ```
 
@@ -1589,8 +1836,7 @@ When using token storage:
 
 * **No tokens**: Need to authenticate
 * **Valid tokens**: Can make API calls
-* **Expired tokens**: Need refresh
-* **Refresh failed**: Need re-authentication
+* **Expired tokens**: Triggers re-authentication (no refresh tokens used)
 
 ## Security Architecture
 
@@ -2066,14 +2312,18 @@ try {
 
 ### Headless / Manual Browser Control
 
-For environments where you want to handle browser opening yourself:
+For environments where you want to handle browser opening yourself (SSH, CI, etc.):
 
 ```typescript
 // Headless mode - print URL, let user open manually
+const redirectUri = "http://localhost:3000/callback";
+const authUrl = `https://oauth.example.com/authorize?redirect_uri=${encodeURIComponent(redirectUri)}`;
+
 console.log("Please open this URL in your browser:");
 console.log(authUrl);
 
-const result = await getAuthCode({ authorizationUrl: authUrl });
+// Server waits for callback without opening browser
+const result = await getAuthCode({ port: 3000, timeout: 120000 });
 ```
 
 Or use a custom launcher:
@@ -2083,7 +2333,7 @@ import open from "open";
 
 const result = await getAuthCode({
   authorizationUrl: authUrl,
-  launch: open, // Pass any function that accepts URL
+  launch: open, // Both authorizationUrl and launch are required together
 });
 ```
 
@@ -2982,7 +3232,7 @@ If you're in a headless environment or the browser doesn't open:
 ```typescript
 // Headless mode - print URL for manual opening
 console.log(`Please open: ${authUrl}`);
-const result = await getAuthCode({ authorizationUrl: authUrl });
+const result = await getAuthCode({ port: 3000, timeout: 120000 });
 ```
 
 :::
@@ -5257,7 +5507,6 @@ interface TokenStore {
   get(key: string): Promise<Tokens | null>;
   set(key: string, tokens: Tokens): Promise<void>;
   delete(key: string): Promise<void>;
-  clear(): Promise<void>;
 }
 ```
 
@@ -5274,14 +5523,21 @@ interface Tokens {
 
 ### OAuthStore Interface
 
-The extended `OAuthStore` interface adds support for Dynamic Client Registration and session state:
+The extended `OAuthStore` interface adds support for Dynamic Client Registration and PKCE verifier persistence:
 
 ```typescript
+import { OAuthStoreBrand } from "oauth-callback/mcp";
+
 interface OAuthStore extends TokenStore {
+  readonly [OAuthStoreBrand]: true; // Required brand for type detection
+
   getClient(key: string): Promise<ClientInfo | null>;
   setClient(key: string, client: ClientInfo): Promise<void>;
-  getSession(key: string): Promise<OAuthSession | null>;
-  setSession(key: string, session: OAuthSession): Promise<void>;
+  deleteClient(key: string): Promise<void>;
+
+  getCodeVerifier(key: string): Promise<string | null>;
+  setCodeVerifier(key: string, verifier: string): Promise<void>;
+  deleteCodeVerifier(key: string): Promise<void>;
 }
 ```
 
@@ -5293,15 +5549,6 @@ interface ClientInfo {
   clientSecret?: string; // OAuth client secret
   clientIdIssuedAt?: number; // When client was registered
   clientSecretExpiresAt?: number; // When secret expires
-}
-```
-
-#### OAuthSession Type
-
-```typescript
-interface OAuthSession {
-  codeVerifier?: string; // PKCE code verifier
-  state?: string; // OAuth state parameter
 }
 ```
 
@@ -5509,13 +5756,6 @@ class RedisTokenStore implements TokenStore {
   async delete(key: string): Promise<void> {
     await this.redis.del(this.prefix + key);
   }
-
-  async clear(): Promise<void> {
-    const keys = await this.redis.keys(this.prefix + "*");
-    if (keys.length > 0) {
-      await this.redis.del(...keys);
-    }
-  }
 }
 
 // Usage
@@ -5588,10 +5828,6 @@ class SQLiteTokenStore implements TokenStore {
   async delete(key: string): Promise<void> {
     this.db.prepare("DELETE FROM tokens WHERE key = ?").run(key);
   }
-
-  async clear(): Promise<void> {
-    this.db.prepare("DELETE FROM tokens").run();
-  }
 }
 
 // Usage
@@ -5608,14 +5844,15 @@ const authProvider = browserAuth({
 
 ```typescript
 import {
-  OAuthStore,
-  Tokens,
-  ClientInfo,
-  OAuthSession,
+  OAuthStoreBrand,
+  type OAuthStore,
+  type Tokens,
+  type ClientInfo,
 } from "oauth-callback/mcp";
 import { MongoClient, Db } from "mongodb";
 
 class MongoOAuthStore implements OAuthStore {
+  readonly [OAuthStoreBrand] = true as const;
   private db: Db;
 
   constructor(db: Db) {
@@ -5625,7 +5862,6 @@ class MongoOAuthStore implements OAuthStore {
   // TokenStore methods
   async get(key: string): Promise<Tokens | null> {
     const doc = await this.db.collection("tokens").findOne({ _id: key });
-
     return doc
       ? {
           accessToken: doc.accessToken,
@@ -5639,25 +5875,16 @@ class MongoOAuthStore implements OAuthStore {
   async set(key: string, tokens: Tokens): Promise<void> {
     await this.db
       .collection("tokens")
-      .replaceOne(
-        { _id: key },
-        { _id: key, ...tokens, updatedAt: new Date() },
-        { upsert: true },
-      );
+      .replaceOne({ _id: key }, { _id: key, ...tokens }, { upsert: true });
   }
 
   async delete(key: string): Promise<void> {
     await this.db.collection("tokens").deleteOne({ _id: key });
   }
 
-  async clear(): Promise<void> {
-    await this.db.collection("tokens").deleteMany({});
-  }
-
-  // OAuthStore additional methods
+  // Client registration methods
   async getClient(key: string): Promise<ClientInfo | null> {
     const doc = await this.db.collection("clients").findOne({ _id: key });
-
     return doc
       ? {
           clientId: doc.clientId,
@@ -5671,32 +5898,27 @@ class MongoOAuthStore implements OAuthStore {
   async setClient(key: string, client: ClientInfo): Promise<void> {
     await this.db
       .collection("clients")
-      .replaceOne(
-        { _id: key },
-        { _id: key, ...client, updatedAt: new Date() },
-        { upsert: true },
-      );
+      .replaceOne({ _id: key }, { _id: key, ...client }, { upsert: true });
   }
 
-  async getSession(key: string): Promise<OAuthSession | null> {
-    const doc = await this.db.collection("sessions").findOne({ _id: key });
-
-    return doc
-      ? {
-          codeVerifier: doc.codeVerifier,
-          state: doc.state,
-        }
-      : null;
+  async deleteClient(key: string): Promise<void> {
+    await this.db.collection("clients").deleteOne({ _id: key });
   }
 
-  async setSession(key: string, session: OAuthSession): Promise<void> {
+  // PKCE verifier methods
+  async getCodeVerifier(key: string): Promise<string | null> {
+    const doc = await this.db.collection("verifiers").findOne({ _id: key });
+    return doc?.verifier ?? null;
+  }
+
+  async setCodeVerifier(key: string, verifier: string): Promise<void> {
     await this.db
-      .collection("sessions")
-      .replaceOne(
-        { _id: key },
-        { _id: key, ...session, updatedAt: new Date() },
-        { upsert: true },
-      );
+      .collection("verifiers")
+      .replaceOne({ _id: key }, { _id: key, verifier }, { upsert: true });
+  }
+
+  async deleteCodeVerifier(key: string): Promise<void> {
+    await this.db.collection("verifiers").deleteOne({ _id: key });
   }
 }
 
@@ -5789,10 +6011,6 @@ class EncryptedTokenStore implements TokenStore {
 
   async delete(key: string): Promise<void> {
     await this.store.delete(key);
-  }
-
-  async clear(): Promise<void> {
-    await this.store.clear();
   }
 }
 
@@ -5922,11 +6140,6 @@ class CachedTokenStore implements TokenStore {
     this.cache.delete(key);
     await this.store.delete(key);
   }
-
-  async clear(): Promise<void> {
-    this.cache.clear();
-    await this.store.clear();
-  }
 }
 
 // Usage
@@ -5961,10 +6174,6 @@ class MockTokenStore implements TokenStore {
 
   async delete(key: string): Promise<void> {
     this.data.delete(key);
-  }
-
-  async clear(): Promise<void> {
-    this.data.clear();
   }
 
   // Test helper methods
@@ -6176,7 +6385,6 @@ flowchart TB
         OAuthStore
         Tokens
         ClientInfo
-        OAuthSession
     end
 
     subgraph "MCP Types"
@@ -6190,7 +6398,6 @@ flowchart TB
     BrowserAuthOptions --> OAuthStore
     OAuthStore --> Tokens
     OAuthStore --> ClientInfo
-    OAuthStore --> OAuthSession
 ```
 
 ## Core Types
@@ -6379,7 +6586,6 @@ interface TokenStore {
   get(key: string): Promise<Tokens | null>;
   set(key: string, tokens: Tokens): Promise<void>;
   delete(key: string): Promise<void>;
-  clear(): Promise<void>;
 }
 ```
 
@@ -6419,23 +6625,26 @@ class CustomTokenStore implements TokenStore {
   async delete(key: string): Promise<void> {
     this.storage.delete(key);
   }
-
-  async clear(): Promise<void> {
-    this.storage.clear();
-  }
 }
 ```
 
 ### OAuthStore
 
-Extended storage interface with Dynamic Client Registration support.
+Extended storage interface with Dynamic Client Registration and PKCE verifier persistence.
 
 ```typescript
+import { OAuthStoreBrand } from "oauth-callback/mcp";
+
 interface OAuthStore extends TokenStore {
+  readonly [OAuthStoreBrand]: true; // Required brand for type detection
+
   getClient(key: string): Promise<ClientInfo | null>;
   setClient(key: string, client: ClientInfo): Promise<void>;
-  getSession(key: string): Promise<OAuthSession | null>;
-  setSession(key: string, session: OAuthSession): Promise<void>;
+  deleteClient(key: string): Promise<void>;
+
+  getCodeVerifier(key: string): Promise<string | null>;
+  setCodeVerifier(key: string, verifier: string): Promise<void>;
+  deleteCodeVerifier(key: string): Promise<void>;
 }
 ```
 
@@ -6452,28 +6661,19 @@ interface ClientInfo {
 }
 ```
 
-### OAuthSession
-
-Active OAuth flow state for crash recovery.
-
-```typescript
-interface OAuthSession {
-  codeVerifier?: string; // PKCE code verifier
-  state?: string; // OAuth state parameter
-}
-```
-
 #### Complete Storage Example
 
 ```typescript
-import type {
-  OAuthStore,
-  Tokens,
-  ClientInfo,
-  OAuthSession,
+import {
+  OAuthStoreBrand,
+  type OAuthStore,
+  type Tokens,
+  type ClientInfo,
 } from "oauth-callback/mcp";
 
 class DatabaseOAuthStore implements OAuthStore {
+  readonly [OAuthStoreBrand] = true as const;
+
   constructor(private db: Database) {}
 
   // TokenStore methods
@@ -6489,32 +6689,31 @@ class DatabaseOAuthStore implements OAuthStore {
     await this.db.tokens.delete({ key });
   }
 
-  async clear(): Promise<void> {
-    await this.db.tokens.deleteMany({});
-  }
-
-  // OAuthStore additional methods
+  // Client registration methods
   async getClient(key: string): Promise<ClientInfo | null> {
     return await this.db.clients.findOne({ key });
   }
 
   async setClient(key: string, client: ClientInfo): Promise<void> {
-    // Check if client secret is expired
-    if (
-      client.clientSecretExpiresAt &&
-      Date.now() >= client.clientSecretExpiresAt
-    ) {
-      throw new Error("Cannot store expired client secret");
-    }
     await this.db.clients.upsert({ key }, client);
   }
 
-  async getSession(key: string): Promise<OAuthSession | null> {
-    return await this.db.sessions.findOne({ key });
+  async deleteClient(key: string): Promise<void> {
+    await this.db.clients.delete({ key });
   }
 
-  async setSession(key: string, session: OAuthSession): Promise<void> {
-    await this.db.sessions.upsert({ key }, session);
+  // PKCE verifier methods
+  async getCodeVerifier(key: string): Promise<string | null> {
+    const doc = await this.db.verifiers.findOne({ key });
+    return doc?.verifier ?? null;
+  }
+
+  async setCodeVerifier(key: string, verifier: string): Promise<void> {
+    await this.db.verifiers.upsert({ key }, { verifier });
+  }
+
+  async deleteCodeVerifier(key: string): Promise<void> {
+    await this.db.verifiers.delete({ key });
   }
 }
 ```
@@ -6657,7 +6856,7 @@ try {
 Useful type guard functions for runtime type checking:
 
 ```typescript
-import type { Tokens, ClientInfo, OAuthSession } from "oauth-callback/mcp";
+import type { Tokens, ClientInfo } from "oauth-callback/mcp";
 
 // Check if object is Tokens
 function isTokens(obj: unknown): obj is Tokens {
@@ -6676,15 +6875,6 @@ function isClientInfo(obj: unknown): obj is ClientInfo {
     obj !== null &&
     "clientId" in obj &&
     typeof (obj as any).clientId === "string"
-  );
-}
-
-// Check if object is OAuthSession
-function isOAuthSession(obj: unknown): obj is OAuthSession {
-  return (
-    typeof obj === "object" &&
-    obj !== null &&
-    ("codeVerifier" in obj || "state" in obj)
   );
 }
 
@@ -6780,14 +6970,7 @@ export { getAuthCode, OAuthError, inMemoryStore, fileStore };
 
 ```typescript
 // From "oauth-callback/mcp"
-export type {
-  BrowserAuthOptions,
-  TokenStore,
-  OAuthStore,
-  Tokens,
-  ClientInfo,
-  OAuthSession,
-};
+export type { BrowserAuthOptions, TokenStore, OAuthStore, Tokens, ClientInfo };
 
 export { browserAuth, inMemoryStore, fileStore };
 ```

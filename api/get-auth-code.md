@@ -250,14 +250,18 @@ try {
 
 ### Headless / Manual Browser Control
 
-For environments where you want to handle browser opening yourself:
+For environments where you want to handle browser opening yourself (SSH, CI, etc.):
 
 ```typescript
 // Headless mode - print URL, let user open manually
+const redirectUri = "http://localhost:3000/callback";
+const authUrl = `https://oauth.example.com/authorize?redirect_uri=${encodeURIComponent(redirectUri)}`;
+
 console.log("Please open this URL in your browser:");
 console.log(authUrl);
 
-const result = await getAuthCode({ authorizationUrl: authUrl });
+// Server waits for callback without opening browser
+const result = await getAuthCode({ port: 3000, timeout: 120000 });
 ```
 
 Or use a custom launcher:
@@ -267,7 +271,7 @@ import open from "open";
 
 const result = await getAuthCode({
   authorizationUrl: authUrl,
-  launch: open, // Pass any function that accepts URL
+  launch: open, // Both authorizationUrl and launch are required together
 });
 ```
 

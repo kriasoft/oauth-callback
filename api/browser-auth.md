@@ -7,7 +7,7 @@ description: >-
 
 # browserAuth
 
-The `browserAuth` function creates an OAuth provider that integrates seamlessly with the Model Context Protocol (MCP) SDK. It handles the entire OAuth flow including Dynamic Client Registration, token management, and automatic refresh — all through a browser-based authorization flow.
+The `browserAuth` function creates an OAuth provider that integrates seamlessly with the Model Context Protocol (MCP) SDK. It handles the entire OAuth flow including Dynamic Client Registration and token storage through a browser-based authorization flow. Expired tokens trigger re-authentication; refresh tokens are not used.
 
 ## Function Signature
 
@@ -19,21 +19,22 @@ function browserAuth(options?: BrowserAuthOptions): OAuthClientProvider;
 
 ### BrowserAuthOptions
 
-| Property       | Type                       | Default           | Description                        |
-| -------------- | -------------------------- | ----------------- | ---------------------------------- |
-| `clientId`     | `string`                   | *none*            | Pre-registered OAuth client ID     |
-| `clientSecret` | `string`                   | *none*            | Pre-registered OAuth client secret |
-| `scope`        | `string`                   | *none*            | OAuth scopes to request            |
-| `port`         | `number`                   | `3000`            | Port for local callback server     |
-| `hostname`     | `string`                   | `"localhost"`     | Hostname to bind server to         |
-| `callbackPath` | `string`                   | `"/callback"`     | URL path for OAuth callback        |
-| `store`        | `TokenStore`               | `inMemoryStore()` | Token storage implementation       |
-| `storeKey`     | `string`                   | `"mcp-tokens"`    | Storage key for token isolation    |
-| `launch`       | `(url: string) => unknown` | *none*            | Callback to launch auth URL        |
-| `authTimeout`  | `number`                   | `300000`          | Auth timeout in ms (5 min)         |
-| `successHtml`  | `string`                   | *built-in*        | Custom success page HTML           |
-| `errorHtml`    | `string`                   | *built-in*        | Custom error page HTML             |
-| `onRequest`    | `(req: Request) => void`   | *none*            | Request logging callback           |
+| Property        | Type                       | Default           | Description                                                                                                                                   |
+| --------------- | -------------------------- | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `clientId`      | `string`                   | *none*            | Pre-registered OAuth client ID                                                                                                                |
+| `clientSecret`  | `string`                   | *none*            | Pre-registered OAuth client secret                                                                                                            |
+| `scope`         | `string`                   | *none*            | OAuth scopes to request. When omitted, the auth server uses its default scope.                                                                |
+| `port`          | `number`                   | `3000`            | Port for local callback server                                                                                                                |
+| `hostname`      | `string`                   | `"localhost"`     | Hostname to bind server to                                                                                                                    |
+| `callbackPath`  | `string`                   | `"/callback"`     | URL path for OAuth callback                                                                                                                   |
+| `store`         | `TokenStore`               | `inMemoryStore()` | Token storage implementation                                                                                                                  |
+| `storeKey`      | `string`                   | `"mcp-tokens"`    | Storage key for token isolation                                                                                                               |
+| `launch`        | `(url: string) => unknown` | *none*            | Callback to launch auth URL                                                                                                                   |
+| `authTimeout`   | `number`                   | `300000`          | Auth timeout in ms (5 min)                                                                                                                    |
+| `successHtml`   | `string`                   | *built-in*        | Custom success page HTML                                                                                                                      |
+| `errorHtml`     | `string`                   | *built-in*        | Custom error page HTML                                                                                                                        |
+| `onRequest`     | `(req: Request) => void`   | *none*            | Request logging callback                                                                                                                      |
+| `authServerUrl` | `string \| URL`            | *auto*            | Base URL for OAuth metadata discovery. Defaults to the authorization URL's origin. Set this when the token endpoint is on a different origin. |
 
 ## Return Value
 
@@ -41,10 +42,10 @@ Returns an `OAuthClientProvider` instance that implements the MCP SDK authentica
 
 ```typescript
 interface OAuthClientProvider {
-  // Called by MCP SDK for authentication
+  // Completes full OAuth flow: browser → callback → token exchange → persist
   redirectToAuthorization(authorizationUrl: URL): Promise<void>;
 
-  // Token management
+  // Token storage
   tokens(): Promise<OAuthTokens | undefined>;
   saveTokens(tokens: OAuthTokens): Promise<void>;
 
@@ -316,7 +317,6 @@ interface TokenStore {
   get(key: string): Promise<Tokens | null>;
   set(key: string, tokens: Tokens): Promise<void>;
   delete(key: string): Promise<void>;
-  clear(): Promise<void>;
 }
 ```
 
@@ -326,8 +326,10 @@ interface TokenStore {
 interface OAuthStore extends TokenStore {
   getClient(key: string): Promise<ClientInfo | null>;
   setClient(key: string, client: ClientInfo): Promise<void>;
-  getSession(key: string): Promise<OAuthSession | null>;
-  setSession(key: string, session: OAuthSession): Promise<void>;
+  deleteClient(key: string): Promise<void>;
+  getCodeVerifier(key: string): Promise<string | null>;
+  setCodeVerifier(key: string, verifier: string): Promise<void>;
+  deleteCodeVerifier(key: string): Promise<void>;
 }
 ```
 
@@ -402,14 +404,6 @@ class RedisStore implements TokenStore {
   async delete(key: string): Promise<void> {
     await this.redis.del(key);
   }
-
-  async clear(): Promise<void> {
-    // Clear all tokens with pattern matching
-    const keys = await this.redis.keys("mcp-tokens:*");
-    if (keys.length > 0) {
-      await this.redis.del(...keys);
-    }
-  }
 }
 
 // Use custom store
@@ -433,25 +427,19 @@ PKCE prevents authorization code interception attacks by:
 
 ### State Parameter
 
-The provider automatically generates secure state parameters:
+The `state()` method generates secure random values when called by the MCP SDK. State validation in `browserAuth` compares the callback's state against the state parameter in the authorization URL that was passed to `redirectToAuthorization()`. This means validation works regardless of whether `state()` was used - it validates whatever state is present in the URL.
 
-```typescript
-import open from "open";
-
-// State is automatically generated and validated
-const authProvider = browserAuth({ launch: open });
-// No manual state handling needed!
-```
+For localhost flows, [RFC 8252](https://www.rfc-editor.org/rfc/rfc8252) considers loopback interface binding sufficient for security. State validation adds defense-in-depth.
 
 ### Token Expiry Management
 
-Tokens are automatically managed with expiry tracking:
+Tokens are tracked with expiry times. The provider returns `undefined` from `tokens()` 60 seconds before actual expiry to prevent mid-request failures. This triggers re-authentication before tokens become invalid:
 
 ```typescript
-// The provider automatically:
-// 1. Tracks token expiry time
-// 2. Returns undefined for expired tokens
-// 3. Attempts refresh when refresh tokens are available
+// The provider:
+// 1. Returns undefined 60s before token expiry
+// 2. SDK triggers re-auth when tokens() returns undefined
+// 3. Requests never fail due to mid-flight token expiry
 ```
 
 ### Secure Storage
@@ -486,17 +474,6 @@ try {
     console.error("Connection failed:", error);
   }
 }
-```
-
-### Retry Logic
-
-The provider includes automatic retry for transient failures:
-
-```typescript
-// Built-in retry logic:
-// - 3 attempts for authorization
-// - Exponential backoff between retries
-// - OAuth errors are not retried (user-actionable)
 ```
 
 ### Timeout Handling
@@ -612,47 +589,15 @@ const authProvider = createAuthProvider(
 );
 ```
 
-### Token Refresh Implementation
+### Handling Expired Tokens
 
-While automatic refresh is pending full implementation, you can handle expired tokens:
+The provider does not use refresh tokens. When tokens expire, re-authentication is triggered automatically by returning `undefined` from `tokens()`. The MCP SDK handles this transparently.
+
+For explicit control over re-authentication:
 
 ```typescript
-import open from "open";
-import { browserAuth, fileStore } from "oauth-callback/mcp";
-
-const authProvider = browserAuth({
-  launch: open,
-  store: fileStore(),
-  scope: "offline_access", // Request refresh token
-});
-
-async function withTokenRefresh(client: Client, operation: () => Promise<any>) {
-  try {
-    return await operation();
-  } catch (error) {
-    if (
-      error.message.includes("401") ||
-      error.message.includes("unauthorized")
-    ) {
-      console.log("Token expired, re-authenticating...");
-
-      // Clear expired tokens
-      await authProvider.invalidateCredentials("tokens");
-
-      // Reconnect (will trigger new auth)
-      await client.reconnect();
-
-      // Retry operation
-      return await operation();
-    }
-    throw error;
-  }
-}
-
-// Use with automatic retry
-const result = await withTokenRefresh(client, async () => {
-  return await client.callTool("get-data", {});
-});
+// Force re-authentication by clearing tokens
+await authProvider.invalidateCredentials("tokens");
 ```
 
 ## Testing
@@ -803,19 +748,18 @@ const authProvider = browserAuth({
 
 The `browserAuth` provider implements the MCP SDK's `OAuthClientProvider` interface:
 
-| Method                    | Status               | Notes                      |
-| ------------------------- | -------------------- | -------------------------- |
-| `redirectToAuthorization` | ✅ Fully supported   | Opens browser for auth     |
-| `tokens`                  | ✅ Fully supported   | Returns current tokens     |
-| `saveTokens`              | ✅ Fully supported   | Persists to storage        |
-| `clientInformation`       | ✅ Fully supported   | Returns client credentials |
-| `saveClientInformation`   | ✅ Fully supported   | Stores DCR results         |
-| `state`                   | ✅ Fully supported   | Generates secure state     |
-| `codeVerifier`            | ✅ Fully supported   | PKCE verifier              |
-| `saveCodeVerifier`        | ✅ Fully supported   | Stores PKCE verifier       |
-| `invalidateCredentials`   | ✅ Fully supported   | Clears stored data         |
-| `validateResourceURL`     | ✅ Returns undefined | Not applicable             |
-| `getPendingAuthCode`      | ✅ Internal use      | Used by SDK                |
+| Method                    | Status               | Notes                                                                     |
+| ------------------------- | -------------------- | ------------------------------------------------------------------------- |
+| `redirectToAuthorization` | ✅ Fully supported   | Completes full OAuth flow (browser → callback → token exchange → persist) |
+| `tokens`                  | ✅ Fully supported   | Returns current tokens                                                    |
+| `saveTokens`              | ✅ Fully supported   | Persists to storage                                                       |
+| `clientInformation`       | ✅ Fully supported   | Returns client credentials                                                |
+| `saveClientInformation`   | ✅ Fully supported   | Stores DCR results                                                        |
+| `state`                   | ✅ Fully supported   | Generates secure state                                                    |
+| `codeVerifier`            | ✅ Fully supported   | PKCE verifier                                                             |
+| `saveCodeVerifier`        | ✅ Fully supported   | Stores PKCE verifier                                                      |
+| `invalidateCredentials`   | ✅ Fully supported   | Clears stored data                                                        |
+| `validateResourceURL`     | ✅ Returns undefined | Not applicable                                                            |
 
 ## Migration Guide
 

@@ -11,6 +11,7 @@ Lightweight, cross-runtime, with native MCP SDK integration for AI agents
 - [What is OAuth Callback?](/oauth-callback/what-is-oauth-callback.md): Learn how OAuth Callback simplifies OAuth 2.0 authorization code capture for CLI tools, desktop apps, and MCP clients using localhost callbacks.
 - [Getting Started](/oauth-callback/getting-started.md): Quick start guide to implement OAuth 2.0 authorization code flow in your CLI tools, desktop apps, and MCP clients using oauth-callback.
 - [Core Concepts](/oauth-callback/core-concepts.md): Master the fundamental concepts and architecture of OAuth Callback, from the authorization flow to token management and MCP integration patterns.
+- [Architecture Decision Records](/oauth-callback/adr.md)
 
 ### API Reference
 
@@ -27,6 +28,12 @@ Lightweight, cross-runtime, with native MCP SDK integration for AI agents
 
 ### Other
 
+- [ADR-001: No Refresh Tokens in browserAuth](/oauth-callback/adr/001-no-refresh-tokens.md)
+- [ADR-002: Immediate Token Exchange in redirectToAuthorization()](/oauth-callback/adr/002-immediate-token-exchange.md)
+- [ADR-003: Stable Client Metadata Across DCR](/oauth-callback/adr/003-stable-client-metadata.md)
+- [ADR-004: Conditional OAuth State Validation](/oauth-callback/adr/004-conditional-state-validation.md)
+- [ADR-005: OAuthStore Responsibility Reduction](/oauth-callback/adr/005-store-responsibility-reduction.md)
+- [ADR-NNN Title](/oauth-callback/adr/000-template.md)
 - [API Reference](/oauth-callback/api.md): Complete API documentation for OAuth Callback library functions, types, and interfaces.
 - [Examples](/oauth-callback/examples.md)
 - [Markdown Extension Examples](/oauth-callback/markdown-examples.md)

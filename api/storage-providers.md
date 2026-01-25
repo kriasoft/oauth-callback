@@ -22,7 +22,6 @@ interface TokenStore {
   get(key: string): Promise<Tokens | null>;
   set(key: string, tokens: Tokens): Promise<void>;
   delete(key: string): Promise<void>;
-  clear(): Promise<void>;
 }
 ```
 
@@ -39,14 +38,21 @@ interface Tokens {
 
 ### OAuthStore Interface
 
-The extended `OAuthStore` interface adds support for Dynamic Client Registration and session state:
+The extended `OAuthStore` interface adds support for Dynamic Client Registration and PKCE verifier persistence:
 
 ```typescript
+import { OAuthStoreBrand } from "oauth-callback/mcp";
+
 interface OAuthStore extends TokenStore {
+  readonly [OAuthStoreBrand]: true; // Required brand for type detection
+
   getClient(key: string): Promise<ClientInfo | null>;
   setClient(key: string, client: ClientInfo): Promise<void>;
-  getSession(key: string): Promise<OAuthSession | null>;
-  setSession(key: string, session: OAuthSession): Promise<void>;
+  deleteClient(key: string): Promise<void>;
+
+  getCodeVerifier(key: string): Promise<string | null>;
+  setCodeVerifier(key: string, verifier: string): Promise<void>;
+  deleteCodeVerifier(key: string): Promise<void>;
 }
 ```
 
@@ -58,15 +64,6 @@ interface ClientInfo {
   clientSecret?: string; // OAuth client secret
   clientIdIssuedAt?: number; // When client was registered
   clientSecretExpiresAt?: number; // When secret expires
-}
-```
-
-#### OAuthSession Type
-
-```typescript
-interface OAuthSession {
-  codeVerifier?: string; // PKCE code verifier
-  state?: string; // OAuth state parameter
 }
 ```
 
@@ -274,13 +271,6 @@ class RedisTokenStore implements TokenStore {
   async delete(key: string): Promise<void> {
     await this.redis.del(this.prefix + key);
   }
-
-  async clear(): Promise<void> {
-    const keys = await this.redis.keys(this.prefix + "*");
-    if (keys.length > 0) {
-      await this.redis.del(...keys);
-    }
-  }
 }
 
 // Usage
@@ -353,10 +343,6 @@ class SQLiteTokenStore implements TokenStore {
   async delete(key: string): Promise<void> {
     this.db.prepare("DELETE FROM tokens WHERE key = ?").run(key);
   }
-
-  async clear(): Promise<void> {
-    this.db.prepare("DELETE FROM tokens").run();
-  }
 }
 
 // Usage
@@ -373,14 +359,15 @@ const authProvider = browserAuth({
 
 ```typescript
 import {
-  OAuthStore,
-  Tokens,
-  ClientInfo,
-  OAuthSession,
+  OAuthStoreBrand,
+  type OAuthStore,
+  type Tokens,
+  type ClientInfo,
 } from "oauth-callback/mcp";
 import { MongoClient, Db } from "mongodb";
 
 class MongoOAuthStore implements OAuthStore {
+  readonly [OAuthStoreBrand] = true as const;
   private db: Db;
 
   constructor(db: Db) {
@@ -390,7 +377,6 @@ class MongoOAuthStore implements OAuthStore {
   // TokenStore methods
   async get(key: string): Promise<Tokens | null> {
     const doc = await this.db.collection("tokens").findOne({ _id: key });
-
     return doc
       ? {
           accessToken: doc.accessToken,
@@ -404,25 +390,16 @@ class MongoOAuthStore implements OAuthStore {
   async set(key: string, tokens: Tokens): Promise<void> {
     await this.db
       .collection("tokens")
-      .replaceOne(
-        { _id: key },
-        { _id: key, ...tokens, updatedAt: new Date() },
-        { upsert: true },
-      );
+      .replaceOne({ _id: key }, { _id: key, ...tokens }, { upsert: true });
   }
 
   async delete(key: string): Promise<void> {
     await this.db.collection("tokens").deleteOne({ _id: key });
   }
 
-  async clear(): Promise<void> {
-    await this.db.collection("tokens").deleteMany({});
-  }
-
-  // OAuthStore additional methods
+  // Client registration methods
   async getClient(key: string): Promise<ClientInfo | null> {
     const doc = await this.db.collection("clients").findOne({ _id: key });
-
     return doc
       ? {
           clientId: doc.clientId,
@@ -436,32 +413,27 @@ class MongoOAuthStore implements OAuthStore {
   async setClient(key: string, client: ClientInfo): Promise<void> {
     await this.db
       .collection("clients")
-      .replaceOne(
-        { _id: key },
-        { _id: key, ...client, updatedAt: new Date() },
-        { upsert: true },
-      );
+      .replaceOne({ _id: key }, { _id: key, ...client }, { upsert: true });
   }
 
-  async getSession(key: string): Promise<OAuthSession | null> {
-    const doc = await this.db.collection("sessions").findOne({ _id: key });
-
-    return doc
-      ? {
-          codeVerifier: doc.codeVerifier,
-          state: doc.state,
-        }
-      : null;
+  async deleteClient(key: string): Promise<void> {
+    await this.db.collection("clients").deleteOne({ _id: key });
   }
 
-  async setSession(key: string, session: OAuthSession): Promise<void> {
+  // PKCE verifier methods
+  async getCodeVerifier(key: string): Promise<string | null> {
+    const doc = await this.db.collection("verifiers").findOne({ _id: key });
+    return doc?.verifier ?? null;
+  }
+
+  async setCodeVerifier(key: string, verifier: string): Promise<void> {
     await this.db
-      .collection("sessions")
-      .replaceOne(
-        { _id: key },
-        { _id: key, ...session, updatedAt: new Date() },
-        { upsert: true },
-      );
+      .collection("verifiers")
+      .replaceOne({ _id: key }, { _id: key, verifier }, { upsert: true });
+  }
+
+  async deleteCodeVerifier(key: string): Promise<void> {
+    await this.db.collection("verifiers").deleteOne({ _id: key });
   }
 }
 
@@ -554,10 +526,6 @@ class EncryptedTokenStore implements TokenStore {
 
   async delete(key: string): Promise<void> {
     await this.store.delete(key);
-  }
-
-  async clear(): Promise<void> {
-    await this.store.clear();
   }
 }
 
@@ -687,11 +655,6 @@ class CachedTokenStore implements TokenStore {
     this.cache.delete(key);
     await this.store.delete(key);
   }
-
-  async clear(): Promise<void> {
-    this.cache.clear();
-    await this.store.clear();
-  }
 }
 
 // Usage
@@ -726,10 +689,6 @@ class MockTokenStore implements TokenStore {
 
   async delete(key: string): Promise<void> {
     this.data.delete(key);
-  }
-
-  async clear(): Promise<void> {
-    this.data.clear();
   }
 
   // Test helper methods
