@@ -5,7 +5,7 @@ import type { TokenStore, Tokens } from "../mcp-types";
 
 /**
  * Ephemeral in-memory token storage.
- * Tokens lost on process restart. Safe for concurrent access within process.
+ * Tokens lost on process restart.
  */
 export function inMemoryStore(): TokenStore {
   const store = new Map<string, Tokens>();
@@ -21,10 +21,6 @@ export function inMemoryStore(): TokenStore {
 
     async delete(key: string): Promise<void> {
       store.delete(key);
-    },
-
-    async clear(): Promise<void> {
-      store.clear();
     },
   };
 }

@@ -22,7 +22,7 @@ OAuth Callback provides a comprehensive set of APIs for handling OAuth 2.0 autho
 - **inMemoryStore** - Ephemeral in-memory token storage
 - **fileStore** - Persistent file-based token storage
 
-### Error Handling
+### Errors
 
 - [**OAuthError**](/api/oauth-error) - OAuth-specific error class with RFC 6749 compliance
 
@@ -109,15 +109,16 @@ interface TokenStore {
   get(key: string): Promise<Tokens | null>;
   set(key: string, tokens: Tokens): Promise<void>;
   delete(key: string): Promise<void>;
-  clear(): Promise<void>;
 }
 
-// Extended storage with DCR support
+// Extended storage with DCR and PKCE support
 interface OAuthStore extends TokenStore {
   getClient(key: string): Promise<ClientInfo | null>;
   setClient(key: string, client: ClientInfo): Promise<void>;
-  getSession(key: string): Promise<OAuthSession | null>;
-  setSession(key: string, session: OAuthSession): Promise<void>;
+  deleteClient(key: string): Promise<void>;
+  getCodeVerifier(key: string): Promise<string | null>;
+  setCodeVerifier(key: string, verifier: string): Promise<void>;
+  deleteCodeVerifier(key: string): Promise<void>;
 }
 ```
 
@@ -249,7 +250,7 @@ const transport = new StreamableHTTPClientTransport(
 );
 ```
 
-### Error Handling
+### Handling Errors
 
 ```typescript
 import { getAuthCode, OAuthError } from "oauth-callback";
@@ -420,14 +421,17 @@ const authProvider = browserAuth({ launch: open, store: fileStore() });
 
 ## API Stability
 
-| API             | Status | Since  | Notes                         |
-| --------------- | ------ | ------ | ----------------------------- |
-| `getAuthCode`   | Stable | v1.0.0 | Core API, backward compatible |
-| `browserAuth`   | Stable | v2.0.0 | MCP integration               |
-| `OAuthError`    | Stable | v1.0.0 | Error handling                |
-| `inMemoryStore` | Stable | v2.0.0 | Storage provider              |
-| `fileStore`     | Stable | v2.0.0 | Storage provider              |
-| Types           | Stable | v1.0.0 | TypeScript definitions        |
+| API              | Status | Since  | Notes                         |
+| ---------------- | ------ | ------ | ----------------------------- |
+| `getAuthCode`    | Stable | v1.0.0 | Core API, backward compatible |
+| `getRedirectUrl` | Stable | v1.0.0 | Redirect URI helper           |
+| `OAuthError`     | Stable | v1.0.0 | OAuth-specific errors         |
+| `TimeoutError`   | Stable | v1.0.0 | Timeout error class           |
+| `mcp`            | Stable | v2.0.0 | MCP namespace export          |
+| `browserAuth`    | Stable | v2.0.0 | MCP integration               |
+| `inMemoryStore`  | Stable | v2.0.0 | Storage provider              |
+| `fileStore`      | Stable | v2.0.0 | Storage provider              |
+| Types            | Stable | v1.0.0 | TypeScript definitions        |
 
 ## Related Resources
 

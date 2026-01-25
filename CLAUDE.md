@@ -1,5 +1,10 @@
 # OAuth Callback Project Guide
 
+## Documentation
+
+**ADRs** (`docs/adr/NNN-slug.md`): Architectural decisions (reference as ADR-NNN)  
+**SPECs** (`docs/specs/slug.md`): Design specifications (reference as SPEC-slug)
+
 ## Project Structure
 
 ```bash
@@ -56,7 +61,7 @@ oauth-callback/
 - `browserAuth()` - MCP SDK-compatible OAuth provider
 - `inMemoryStore()` - Ephemeral token storage
 - `fileStore()` - Persistent file-based token storage
-- Type exports: `BrowserAuthOptions`, `Tokens`, `TokenStore`, `ClientInfo`, `OAuthSession`, `OAuthStore`
+- Type exports: `BrowserAuthOptions`, `Tokens`, `TokenStore`, `ClientInfo`, `OAuthStore`
 
 ## Key Constraints
 

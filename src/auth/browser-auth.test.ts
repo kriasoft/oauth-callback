@@ -40,8 +40,7 @@ describe("browserAuth", () => {
     expect(metadata.redirect_uris).toEqual([
       "http://127.0.0.1:8080/oauth/callback",
     ]);
-    expect(metadata.grant_types).toContain("authorization_code");
-    expect(metadata.grant_types).toContain("refresh_token");
+    expect(metadata.grant_types).toEqual(["authorization_code"]);
     expect(metadata.response_types).toEqual(["code"]);
     expect(metadata.scope).toBe("read write");
     expect(metadata.token_endpoint_auth_method).toBe("client_secret_post");
@@ -79,7 +78,7 @@ describe("browserAuth", () => {
     let clientInfo = await provider.clientInformation();
     expect(clientInfo).toBeUndefined();
 
-    // Save client information
+    // Save client information (simulates DCR response)
     await provider.saveClientInformation!({
       redirect_uris: ["http://localhost:9999/callback"],
       client_id: "dynamic-client-id",
@@ -93,6 +92,10 @@ describe("browserAuth", () => {
       client_id: "dynamic-client-id",
       client_secret: "dynamic-client-secret",
     });
+
+    // clientMetadata must remain stable after DCR - auth method stays "none"
+    // because no clientSecret was provided at construction time
+    expect(provider.clientMetadata.token_endpoint_auth_method).toBe("none");
   });
 
   test("saves and retrieves tokens", async () => {
@@ -122,6 +125,21 @@ describe("browserAuth", () => {
     const stored = await store.get("test-tokens");
     expect(stored?.accessToken).toBe("test-access-token");
     expect(stored?.refreshToken).toBe("test-refresh-token");
+  });
+
+  test("returns undefined for expired tokens (triggers SDK re-auth)", async () => {
+    const store = inMemoryStore();
+    const provider = browserAuth({ store, storeKey: "test-tokens" });
+
+    // Inject expired token directly into store (expiresAt in the past)
+    await store.set("test-tokens", {
+      accessToken: "expired-token",
+      expiresAt: Date.now() - 1000, // 1 second ago
+    });
+
+    // Provider should return undefined, signaling SDK to re-authenticate
+    const tokens = await provider.tokens();
+    expect(tokens).toBeUndefined();
   });
 
   test("saves and retrieves code verifier", async () => {
@@ -172,90 +190,182 @@ describe("browserAuth", () => {
     await expect(provider.codeVerifier()).rejects.toThrow();
   });
 
-  test("getPendingAuthCode is single-use", () => {
-    const provider = browserAuth() as any;
+  test("invalidateCredentials('all') only clears own storeKey, not other keys", async () => {
+    const store = inMemoryStore();
 
-    // Initially undefined
-    expect(provider.getPendingAuthCode()).toBeUndefined();
-
-    // Set pending auth code
-    provider._pendingAuthCode = "test-code";
-    provider._pendingAuthState = "test-state";
-
-    // First call returns the code
-    const result = provider.getPendingAuthCode();
-    expect(result).toEqual({
-      code: "test-code",
-      state: "test-state",
+    // Store data under a different key (simulating another provider instance)
+    await store.set("other-provider-tokens", {
+      accessToken: "other-access-token",
+      refreshToken: "other-refresh-token",
     });
-    expect(provider._isExchangingCode).toBe(true);
 
-    /** Verify single-use security constraint. */
-    expect(provider.getPendingAuthCode()).toBeUndefined();
-  });
-
-  test("preserves client info during token exchange", async () => {
-    const provider = browserAuth() as any;
-
-    // Set up initial state
-    await provider.saveClientInformation({
-      redirect_uris: ["http://localhost:9999/callback"],
-      client_id: "test-client",
-      client_secret: "test-secret",
-      client_id_issued_at: Date.now(),
+    const provider = browserAuth({ store, storeKey: "my-tokens" });
+    await provider.saveTokens({
+      access_token: "my-access-token",
+      token_type: "Bearer",
     });
-    await provider.saveCodeVerifier("test-verifier");
 
-    // Simulate token exchange
-    provider._isExchangingCode = true;
+    // Invalidate all credentials for this provider
+    await provider.invalidateCredentials!("all");
 
-    /** Test SDK workaround: invalidate("all") during exchange preserves state. */
-    await provider.invalidateCredentials("all");
+    // Own tokens cleared
+    expect(await store.get("my-tokens")).toBeNull();
 
-    // Client info and verifier should be preserved
-    expect(await provider.clientInformation()).toBeDefined();
-    expect(await provider.codeVerifier()).toBe("test-verifier");
+    // Other provider's data untouched
+    const otherTokens = await store.get("other-provider-tokens");
+    expect(otherTokens?.accessToken).toBe("other-access-token");
   });
 });
 
-describe("browserAuth with retries", () => {
-  test("handles cleanup of pending auth state on timeout", () => {
-    const provider = browserAuth() as any;
+describe("browserAuth concurrency", () => {
+  test("serializes concurrent auth attempts - exchanges code once", async () => {
+    let exchangeCallCount = 0;
+    let resolveAuth: (v?: unknown) => void;
+    const authBlocked = new Promise((r) => (resolveAuth = r));
 
-    // Simulate setting pending auth code
-    provider._pendingAuthCode = "test-code";
-    provider._pendingAuthState = "test-state";
+    const { mock } = await import("bun:test");
+    mock.module("../index", () => ({
+      getAuthCode: async () => {
+        await authBlocked;
+        return { code: "test-code" };
+      },
+    }));
 
-    // Get the code (marks as exchanging)
-    const result = provider.getPendingAuthCode();
-    expect(result).toEqual({
-      code: "test-code",
-      state: "test-state",
-    });
+    mock.module("@modelcontextprotocol/sdk/client/auth.js", () => ({
+      exchangeAuthorization: async () => {
+        exchangeCallCount++;
+        return { access_token: "test-token", token_type: "Bearer" };
+      },
+      discoverAuthorizationServerMetadata: async () => undefined,
+    }));
 
-    /** Verify cleanup for security. */
-    expect(provider._pendingAuthCode).toBeUndefined();
-    expect(provider._pendingAuthState).toBeUndefined();
-  });
+    const { browserAuth: mockedBrowserAuth } = await import("./browser-auth");
+    const provider = mockedBrowserAuth({ clientId: "test-client" });
+    await provider.saveCodeVerifier("test-verifier");
 
-  test("ensures only one auth flow at a time", async () => {
-    const provider = browserAuth() as any;
+    const authUrl = new URL("https://example.com/auth");
 
-    // Mock auth in progress
-    let resolveAuth: () => void;
-    provider._authInProgress = new Promise<void>((resolve) => {
-      resolveAuth = () => resolve();
-    });
+    // Start concurrent auth attempts
+    const first = provider.redirectToAuthorization(authUrl);
+    const second = provider.redirectToAuthorization(authUrl);
 
-    /** Second attempt should queue behind first. */
-    const secondAttempt = provider.redirectToAuthorization(
-      new URL("https://example.com/auth"),
-    );
-
-    // Resolve first auth
+    // Unblock auth flow
     resolveAuth!();
 
-    // Second attempt should complete without error
-    await expect(secondAttempt).resolves.toBeUndefined();
+    // Both should resolve without error
+    await Promise.all([first, second]);
+
+    // Contract: token exchange happens exactly once (second call reuses first result)
+    expect(exchangeCallCount).toBe(1);
+
+    // Tokens are saved
+    const tokens = await provider.tokens();
+    expect(tokens?.access_token).toBe("test-token");
+  });
+});
+
+describe("browserAuth state validation", () => {
+  test("rejects callback with mismatched state", async () => {
+    const { mock } = await import("bun:test");
+    mock.module("../index", () => ({
+      getAuthCode: async () => ({
+        code: "test-code",
+        state: "wrong-state",
+      }),
+    }));
+
+    const { browserAuth: mockedBrowserAuth } = await import("./browser-auth");
+    const provider = mockedBrowserAuth({ clientId: "test-client" });
+
+    const authUrl = new URL("https://example.com/auth?state=expected-state");
+
+    await expect(provider.redirectToAuthorization(authUrl)).rejects.toThrow(
+      "OAuth state mismatch",
+    );
+  });
+
+  test("accepts callback with matching state", async () => {
+    const { mock } = await import("bun:test");
+    mock.module("../index", () => ({
+      getAuthCode: async () => ({
+        code: "test-code",
+        state: "correct-state",
+      }),
+    }));
+    mock.module("@modelcontextprotocol/sdk/client/auth.js", () => ({
+      exchangeAuthorization: async () => ({
+        access_token: "test-token",
+        token_type: "Bearer",
+      }),
+      discoverAuthorizationServerMetadata: async () => undefined,
+    }));
+
+    const { browserAuth: mockedBrowserAuth } = await import("./browser-auth");
+    const provider = mockedBrowserAuth({ clientId: "test-client" });
+    await provider.saveCodeVerifier("test-verifier");
+
+    const authUrl = new URL("https://example.com/auth?state=correct-state");
+
+    // Should not throw
+    await provider.redirectToAuthorization(authUrl);
+    expect(await provider.tokens()).toBeDefined();
+  });
+
+  test("skips state validation when no state in authorization URL", async () => {
+    const { mock } = await import("bun:test");
+    mock.module("../index", () => ({
+      getAuthCode: async () => ({
+        code: "test-code",
+        // No state in callback (legacy flow)
+      }),
+    }));
+    mock.module("@modelcontextprotocol/sdk/client/auth.js", () => ({
+      exchangeAuthorization: async () => ({
+        access_token: "test-token",
+        token_type: "Bearer",
+      }),
+      discoverAuthorizationServerMetadata: async () => undefined,
+    }));
+
+    const { browserAuth: mockedBrowserAuth } = await import("./browser-auth");
+    const provider = mockedBrowserAuth({ clientId: "test-client" });
+    await provider.saveCodeVerifier("test-verifier");
+
+    // No state in auth URL
+    const authUrl = new URL("https://example.com/auth");
+
+    // Should not throw
+    await provider.redirectToAuthorization(authUrl);
+    expect(await provider.tokens()).toBeDefined();
+  });
+
+  test("uses authServerUrl when token endpoint differs from authorization origin", async () => {
+    let capturedAuthServerUrl: URL | undefined;
+
+    const { mock } = await import("bun:test");
+    mock.module("../index", () => ({
+      getAuthCode: async () => ({ code: "test-code" }),
+    }));
+    mock.module("@modelcontextprotocol/sdk/client/auth.js", () => ({
+      exchangeAuthorization: async (serverUrl: URL) => {
+        capturedAuthServerUrl = serverUrl;
+        return { access_token: "test-token", token_type: "Bearer" };
+      },
+      discoverAuthorizationServerMetadata: async () => undefined,
+    }));
+
+    const { browserAuth: mockedBrowserAuth } = await import("./browser-auth");
+    const provider = mockedBrowserAuth({
+      clientId: "test-client",
+      // Authorization on accounts.example.com, token endpoint on auth.example.com
+      authServerUrl: "https://auth.example.com",
+    });
+    await provider.saveCodeVerifier("test-verifier");
+
+    await provider.redirectToAuthorization(
+      new URL("https://accounts.example.com/authorize"),
+    );
+
+    expect(capturedAuthServerUrl?.origin).toBe("https://auth.example.com");
   });
 });

@@ -3,9 +3,12 @@
   "editor.defaultFormatter": "esbenp.prettier-vscode",
   "cSpell.words": [
     "bunx",
+    "EADDRINUSE",
     "konstantin",
     "kriasoft",
     "modelcontextprotocol",
+    "myapp",
+    "PKCE",
     "publint",
     "srcpack",
     "streamable",

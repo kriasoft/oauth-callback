@@ -28,7 +28,7 @@ The authorization code flow provides several security benefits:
 - **No token exposure**: Access tokens never pass through the browser
 - **Short-lived codes**: Authorization codes expire quickly (typically 10 minutes)
 - **Server verification**: The auth server can verify the client's identity
-- **Refresh capability**: Supports refresh tokens for long-lived access
+- **PKCE support**: Protection against authorization code interception
 
 ## The Localhost Callback Pattern
 
@@ -38,7 +38,7 @@ The core innovation of OAuth Callback is making the localhost callback pattern t
 
 Traditional web applications have public URLs where OAuth providers can send callbacks:
 
-```
+```text
 https://myapp.com/oauth/callback?code=xyz123
 ```
 
@@ -105,13 +105,12 @@ The heart of OAuth Callback is a lightweight HTTP server that:
 - Serves success/error HTML pages
 - Implements proper cleanup on completion
 
-```typescript
-// Internally, the server handles:
-- Request routing (/callback path matching)
-- Query parameter extraction (code, state, error)
+Internally, the server handles:
+
+- Request routing (`/callback` path matching)
+- Query parameter extraction (`code`, `state`, `error`)
 - HTML template rendering with placeholders
 - Graceful shutdown after callback
-```
 
 #### 2. The Authorization Handler (`getAuthCode`)
 
@@ -157,7 +156,7 @@ The `TokenStore` interface enables different storage strategies:
 
 ```typescript
 interface TokenStore {
-  get(key: string): Promise<Tokens | undefined>;
+  get(key: string): Promise<Tokens | null>;
   set(key: string, tokens: Tokens): Promise<void>;
   delete(key: string): Promise<void>;
 }
@@ -187,12 +186,14 @@ const store = fileStore("~/.myapp/tokens.json");
 
 ### Token Lifecycle
 
+OAuth Callback uses re-authentication instead of refresh tokens. When tokens expire, the provider returns `undefined`, signaling the MCP SDK to re-initiate the OAuth flow. This simplifies implementation and avoids storing long-lived refresh credentials.
+
 ```mermaid
 stateDiagram-v2
     [*] --> NoToken: Initial State
     NoToken --> Authorizing: User initiates OAuth
     Authorizing --> HasToken: Successful auth
-    HasToken --> Authorizing: Token expired
+    HasToken --> Authorizing: Token expired (re-auth)
     HasToken --> NoToken: User logs out
 ```
 
@@ -225,11 +226,17 @@ The `browserAuth()` function returns an `OAuthClientProvider` that integrates wi
 
 ```typescript
 interface OAuthClientProvider {
-  // Called by MCP SDK when authentication is needed
-  authenticate(params: AuthenticationParams): Promise<AuthenticationResult>;
+  // Token access - returns undefined when expired, triggering re-auth
+  tokens(): Promise<OAuthTokens | undefined>;
+  saveTokens(tokens: OAuthTokens): Promise<void>;
 
-  // Manages token refresh automatically
-  refreshToken?(params: RefreshParams): Promise<RefreshResult>;
+  // Completes full OAuth flow (browser → callback → token exchange)
+  redirectToAuthorization(authorizationUrl: URL): Promise<void>;
+
+  // PKCE and state management
+  codeVerifier(): Promise<string>;
+  saveCodeVerifier(verifier: string): Promise<void>;
+  state(): Promise<string>;
 }
 ```
 
@@ -292,8 +299,7 @@ When using token storage:
 
 - **No tokens**: Need to authenticate
 - **Valid tokens**: Can make API calls
-- **Expired tokens**: Need refresh
-- **Refresh failed**: Need re-authentication
+- **Expired tokens**: Triggers re-authentication (no refresh tokens used)
 
 ## Security Architecture
 

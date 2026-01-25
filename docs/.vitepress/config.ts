@@ -58,7 +58,7 @@ export default withMermaid(
         { text: "API", link: "/api/get-auth-code" },
         { text: "Examples", link: "/examples/notion" },
         {
-          text: "v2.0.0",
+          text: "v2.2.0",
           items: [
             {
               text: "Release Notes",
@@ -82,6 +82,7 @@ export default withMermaid(
             },
             { text: "Getting Started", link: "/getting-started" },
             { text: "Core Concepts", link: "/core-concepts" },
+            { text: "ADRs", link: "/adr/" },
           ],
         },
         {
