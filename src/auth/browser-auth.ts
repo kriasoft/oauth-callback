@@ -335,17 +335,7 @@ class BrowserOAuthProvider implements OAuthClientProvider {
    * re-checking for tokens, causing the transport to throw UnauthorizedError. However,
    * tokens are now saved, so a subsequent connect() attempt will succeed.
    *
-   * For CLI/desktop apps, the recommended pattern is:
-   * ```typescript
-   * try {
-   *   await client.connect(transport);
-   * } catch (e) {
-   *   if (e.message === 'Unauthorized') {
-   *     // Tokens acquired during first attempt; retry succeeds
-   *     await client.connect(transport);
-   *   } else throw e;
-   * }
-   * ```
+   * @see ADR-002 for the recommended retry pattern with a fresh transport
    */
   private async _exchangeCodeForTokens(
     authorizationUrl: URL,
