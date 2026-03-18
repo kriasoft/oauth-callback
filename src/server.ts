@@ -281,6 +281,12 @@ class NodeCallbackServer extends BaseCallbackServer {
           const request = this.nodeToWebRequest(req, port, hostname);
           const response = this.handleRequest(request);
 
+          res.on("finish", () => {
+            // Force close all connections from server side after the response is fully flushed
+            // See: https://nodejs.org/api/http.html#event-finish-1
+            this.server?.closeAllConnections();
+          });
+
           res.shouldKeepAlive = false;
 
           res.writeHead(
