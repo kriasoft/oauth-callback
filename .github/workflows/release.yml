@@ -17,32 +17,39 @@ jobs:
     permissions:
       contents: read
       id-token: write
+    # Expressions go through env, never inline in scripts, to prevent injection.
+    env:
+      TAG: ${{ inputs.tag || github.event.release.tag_name }}
+      PRERELEASE: ${{ github.event.release.prerelease || false }}
 
     steps:
-      - uses: actions/checkout@v6
+      # This job can publish to npm, so actions are pinned to commit SHAs.
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
-          ref: ${{ github.event.inputs.tag || github.ref_name }}
-      - uses: oven-sh/setup-bun@v2
+          # Fully qualified so a same-named branch can't be published.
+          ref: refs/tags/${{ env.TAG }}
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: latest
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: "24"
           registry-url: "https://registry.npmjs.org"
 
-      - run: bun install --frozen-lockfile
-      - run: bun run build:templates
-      - run: bun run build
-
       - name: Verify version match
         run: |
-          TAG_REF="${{ github.event.inputs.tag || github.ref_name }}"
           PACKAGE_VERSION="v$(node -p 'require("./package.json").version')"
-          if [ "$PACKAGE_VERSION" != "$TAG_REF" ]; then
-            echo "Error: Package version ($PACKAGE_VERSION) doesn't match tag ($TAG_REF)"
+          if [ "$PACKAGE_VERSION" != "$TAG" ]; then
+            echo "Error: Package version ($PACKAGE_VERSION) doesn't match tag ($TAG)"
             exit 1
           fi
           echo "✅ Version verified: $PACKAGE_VERSION"
+
+      - run: bun install --frozen-lockfile
+      - run: bun run build
+      # CI doesn't run on tags, so the released commit is tested here.
+      - run: bun test
 
       - name: Verify dist output
         run: |
@@ -56,4 +63,11 @@ jobs:
           fi
           echo "✅ Build output verified"
 
-      - run: npm publish --access public --provenance
+      # Prereleases (GitHub flag or SemVer suffix) must not become npm "latest".
+      - name: Publish
+        run: |
+          DIST_TAG=latest
+          if [ "$PRERELEASE" = "true" ] || [[ "$TAG" == *-* ]]; then
+            DIST_TAG=next
+          fi
+          npm publish --access public --provenance --tag "$DIST_TAG"

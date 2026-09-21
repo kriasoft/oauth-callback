@@ -1,0 +1,30 @@
+# https://docs.github.com/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
+#
+# The package has no runtime dependencies, so these updates only touch the
+# toolchain (build, tests, docs) and CI. Grouping keeps noise to about one PR
+# per ecosystem per week; majors stay separate because they need review.
+# The cooldown skips releases younger than a week, which avoids most
+# compromised npm publishes (they are usually pulled within days).
+
+version: 2
+updates:
+  - package-ecosystem: "bun"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
+    groups:
+      dev-dependencies:
+        update-types: ["minor", "patch"]
+
+  # Also keeps the SHA-pinned actions in release.yml current.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
+    groups:
+      github-actions:
+        patterns: ["*"]
