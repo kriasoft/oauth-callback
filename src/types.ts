@@ -42,6 +42,7 @@ interface GetAuthCodeOptionsBase {
   /**
    * Custom HTML template to display when authorization fails.
    * Supports placeholders: {{error}}, {{error_description}}, {{error_uri}}
+   * (HTML-escaped; {{error_uri}} is empty unless http(s)).
    * If not provided, a default error page is used.
    */
   errorHtml?: string;

@@ -38,7 +38,7 @@ export interface ServerOptions {
   hostname?: string;
   /** Custom HTML content for successful authorization */
   successHtml?: string;
-  /** Custom HTML template for error pages (supports {{error}}, {{error_description}}, {{error_uri}} placeholders) */
+  /** Custom HTML template for error pages (supports {{error}}, {{error_description}}, {{error_uri}} placeholders, HTML-escaped) */
   errorHtml?: string;
   /** AbortSignal for cancelling the server operation */
   signal?: AbortSignal;
@@ -72,17 +72,32 @@ function generateCallbackHTML(
 ): string {
   if (!params.error) return successHtml || successTemplate;
 
-  if (errorHtml)
-    return errorHtml
-      .replace(/{{error}}/g, params.error || "")
-      .replace(/{{error_description}}/g, params.error_description || "")
-      .replace(/{{error_uri}}/g, params.error_uri || "");
+  // Query params are untrusted: any page can link to the callback URL.
+  const error = escapeHtml(params.error);
+  const error_description = escapeHtml(params.error_description);
+  // http(s) only, so the value is safe in an href (no javascript: or data:).
+  const error_uri = /^https?:\/\//i.test(params.error_uri ?? "")
+    ? escapeHtml(params.error_uri)
+    : "";
 
-  return renderError({
-    error: params.error,
-    error_description: params.error_description,
-    error_uri: params.error_uri,
-  });
+  // Single pass, so a "{{...}}" inside a value is never expanded. The function
+  // replacer also keeps "$&"-style sequences literal.
+  const values: Record<string, string> = {
+    error,
+    error_description,
+    error_uri,
+  };
+  if (errorHtml)
+    return errorHtml.replace(
+      /{{(error|error_description|error_uri)}}/g,
+      (_, key: string) => values[key]!,
+    );
+
+  return renderError({ error, error_description, error_uri });
+}
+
+function escapeHtml(value = ""): string {
+  return value.replace(/[&<>"']/g, (char) => `&#${char.charCodeAt(0)};`);
 }
 
 /**
