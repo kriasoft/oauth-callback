@@ -170,8 +170,10 @@ Error templates support these placeholders:
 
 - `{{error}}` - OAuth error code
 - `{{error_description}}` - Human-readable description
-- `{{error_uri}}` - Link to error documentation
-  :::
+- `{{error_uri}}` - Link to error documentation (empty unless `http(s)`)
+
+Values come from the callback URL, so they are HTML-escaped before insertion.
+:::
 
 ### Request Logging
 

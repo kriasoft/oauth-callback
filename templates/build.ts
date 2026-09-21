@@ -121,6 +121,7 @@ export const successTemplate = \`${escapedSuccessTemplate}\`;
 
 export const errorTemplate = \`${escapedErrorTemplate}\`;
 
+// Params must already be HTML-escaped; see generateCallbackHTML in server.ts.
 export function renderError(params: {
   error: string;
   error_description?: string;
@@ -188,13 +189,15 @@ export function renderError(params: {
       </div>\`;
   }
 
+  // Untrusted details go in last so a "{{...}}" inside them is never expanded;
+  // the function replacer also keeps "$&"-style sequences literal.
   return errorTemplate
     .replace(/{{ERROR_TITLE}}/g, errorTitle)
     .replace("{{ERROR_ICON}}", "⚠️") // Fallback for old template
     .replace("{{ERROR_SVG_ICON}}", errorSvgIcon)
     .replace("{{ERROR_MESSAGE}}", errorMessage)
-    .replace("{{ERROR_DETAILS}}", errorDetails)
-    .replace("{{HELP_TEXT}}", helpText);
+    .replace("{{HELP_TEXT}}", helpText)
+    .replace("{{ERROR_DETAILS}}", () => errorDetails);
 }
 `;
 
