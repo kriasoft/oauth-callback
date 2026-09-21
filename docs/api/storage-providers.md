@@ -151,7 +151,7 @@ const envAuth = browserAuth({
 | Feature         | Description                         |
 | --------------- | ----------------------------------- |
 | **Persistence** | Survives process restarts           |
-| **Concurrency** | ⚠️ Not safe across processes        |
+| **Concurrency** | ⚠️ Serialized per instance only     |
 | **Security**    | File permissions (mode 0600)        |
 | **Performance** | File I/O on each operation          |
 | **Use Cases**   | Desktop apps, long-running services |
@@ -176,7 +176,7 @@ The file store saves tokens in JSON format:
 ```
 
 ::: warning Concurrent Access
-The file store is not safe for concurrent access across multiple processes. If you need multi-process support, implement a custom storage provider with proper locking mechanisms.
+The file store serializes writes within a single instance, but is not safe for concurrent access to the same file from multiple instances or processes. If you need multi-process support, implement a custom storage provider with proper locking mechanisms.
 :::
 
 ## Storage Key Management
