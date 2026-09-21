@@ -89,7 +89,7 @@
     "open": "^11.0.0",
     "prettier": "^3.8.1",
     "publint": "^0.3.17",
-    "srcpack": "^0.1.13",
+    "srcpack": "^1.0.0",
     "typescript": "^5.9.3",
     "vitepress": "^2.0.0-alpha.15",
     "vitepress-plugin-llms": "^1.10.0",
