@@ -54,7 +54,7 @@
   "type": "module",
   "sideEffects": false,
   "engines": {
-    "node": ">=18"
+    "node": ">=18.2"
   },
   "exports": {
     ".": {
