@@ -63,11 +63,13 @@ jobs:
           fi
           echo "✅ Build output verified"
 
-      # Prereleases (GitHub flag or SemVer suffix) must not become npm "latest".
+      # Prereleases (GitHub flag or SemVer suffix) go to "next". Stable releases
+      # omit --tag so npm refuses to move "latest" to an older version.
       - name: Publish
         run: |
-          DIST_TAG=latest
-          if [ "$PRERELEASE" = "true" ] || [[ "$TAG" == *-* ]]; then
-            DIST_TAG=next
+          ARGS=(--access public --provenance)
+          # "${TAG%%+*}" drops build metadata, which may itself contain "-".
+          if [ "$PRERELEASE" = "true" ] || [[ "${TAG%%+*}" == *-* ]]; then
+            ARGS+=(--tag next)
           fi
-          npm publish --access public --provenance --tag "$DIST_TAG"
+          npm publish "${ARGS[@]}"
