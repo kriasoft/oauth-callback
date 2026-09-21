@@ -10,6 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const node = Bun.which("node");
+const KILL_AFTER_MS = 15_000;
 let tempDir: string;
 
 // Opens a browser-style preconnect socket that never sends a request (#35),
@@ -51,18 +52,19 @@ console.log(JSON.stringify({ result, html }));
 async function run(scenario: string, port: number) {
   const proc = Bun.spawn(
     [node!, join(tempDir, "runner.mjs"), scenario, `${port}`],
-    {
-      stdout: "pipe",
-    },
+    { stdout: "pipe", stderr: "pipe" },
   );
-  // Before #35, stop() hung here until Node's 60s headersTimeout.
-  const timer = setTimeout(() => proc.kill(), 3000);
-  const [output, exitCode] = await Promise.all([
+  // Before #35, stop() hung here until Node's 60s headersTimeout. The budget
+  // stays well below that but leaves room for cold Node starts on CI runners.
+  const timer = setTimeout(() => proc.kill(), KILL_AFTER_MS);
+  const [output, errors, exitCode] = await Promise.all([
     new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
     proc.exited,
   ]);
   clearTimeout(timer);
-  expect(exitCode).toBe(0);
+  if (exitCode !== 0)
+    throw new Error(`node exited with ${exitCode}\n${errors}`);
   return JSON.parse(output) as { result: string; html: string };
 }
 
@@ -84,16 +86,24 @@ describe.skipIf(!node)("NodeCallbackServer", () => {
     await rm(tempDir, { recursive: true, force: true });
   });
 
-  test("delivers the full page and stops despite an idle preconnect", async () => {
-    const { result, html } = await run("callback", 43_901);
+  test(
+    "delivers the full page and stops despite an idle preconnect",
+    async () => {
+      const { result, html } = await run("callback", 43_901);
 
-    expect(result).toBe("abc");
-    expect(html.trimEnd().endsWith("</html>")).toBe(true);
-  });
+      expect(result).toBe("abc");
+      expect(html.trimEnd().endsWith("</html>")).toBe(true);
+    },
+    KILL_AFTER_MS + 5_000,
+  );
 
-  test("stops on timeout despite an idle preconnect", async () => {
-    const { result } = await run("timeout", 43_902);
+  test(
+    "stops on timeout despite an idle preconnect",
+    async () => {
+      const { result } = await run("timeout", 43_902);
 
-    expect(result).toBe("TimeoutError");
-  });
+      expect(result).toBe("TimeoutError");
+    },
+    KILL_AFTER_MS + 5_000,
+  );
 });
