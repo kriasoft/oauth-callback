@@ -539,8 +539,7 @@ if (stored && isTokens(stored)) {
 
 ```typescript
 type Result<T, E = Error> =
-  | { success: true; data: T }
-  | { success: false; error: E };
+  { success: true; data: T } | { success: false; error: E };
 
 async function safeGetAuthCode(
   url: string,
