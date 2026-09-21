@@ -311,14 +311,15 @@ class NodeCallbackServer extends BaseCallbackServer {
   }
 
   // Shared so abort-triggered and finally-block stops both await full cleanup.
+  // Not cached before the server exists: an abort during start() must not
+  // turn the later stop() into a no-op.
   protected stopServer(): Promise<void> {
-    return (this.stopping ??= this.closeServer());
+    const server = this.server;
+    if (!server) return Promise.resolve();
+    return (this.stopping ??= this.closeServer(server));
   }
 
-  private async closeServer(): Promise<void> {
-    const server = this.server;
-    if (!server) return;
-
+  private async closeServer(server: HttpServer): Promise<void> {
     const closed = new Promise<void>((resolve) =>
       server.close(() => resolve()),
     );

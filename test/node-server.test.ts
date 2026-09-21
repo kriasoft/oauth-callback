@@ -25,15 +25,26 @@ const auth = getAuthCode({
   openBrowser: false,
   timeout: scenario === "timeout" ? 300 : 5000,
 });
-await new Promise((resolve) => setTimeout(resolve, 100));
-const preconnect = net.connect(port, "localhost").on("error", () => {});
+// Retry until the server listens, so the idle socket is really open.
+async function preconnect() {
+  for (let attempt = 0; attempt < 100; attempt++) {
+    const socket = net.connect(port, "localhost");
+    const connected = await new Promise((resolve) =>
+      socket.once("connect", () => resolve(true)).once("error", () => resolve(false)),
+    );
+    if (connected) return socket;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error("Server did not start listening");
+}
+const idle = await preconnect();
 
 let html = "";
 if (scenario === "callback") {
   html = await (await fetch(\`http://localhost:\${port}/callback?code=abc\`)).text();
 }
 const result = await auth.then((r) => r.code, (e) => e.name);
-preconnect.destroy();
+idle.destroy();
 console.log(JSON.stringify({ result, html }));
 `;
 
