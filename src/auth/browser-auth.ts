@@ -50,8 +50,9 @@ export function browserAuth(
 /**
  * Browser-based OAuth provider for MCP SDK.
  * @invariant PKCE is always enabled (SDK calls saveCodeVerifier/codeVerifier).
- * @invariant addClientAuthentication() must remain undefined (SDK constraint).
- * @invariant Concurrent auth/refresh attempts are serialized.
+ * @invariant addClientAuthentication() is left unimplemented so the SDK applies
+ *   standard client auth negotiated from server metadata.
+ * @invariant Concurrent browser authorization attempts are serialized.
  */
 class BrowserOAuthProvider implements OAuthClientProvider {
   private readonly _store: TokenStore | OAuthStore;
