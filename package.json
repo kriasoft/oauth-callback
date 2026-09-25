@@ -85,7 +85,7 @@
     "@types/deno": "^2.5.0",
     "@types/node": "^25.0.10",
     "bun-types": "^1.2.20",
-    "mermaid": "^11.12.2",
+    "mermaid": "^12.0.0",
     "open": "^11.0.4",
     "prettier": "^3.8.1",
     "publint": "^0.3.17",
