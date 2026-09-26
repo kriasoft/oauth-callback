@@ -10,7 +10,7 @@ export default withMermaid(
     base: "/oauth-callback/",
     title: "OAuth Callback",
     description:
-      "OAuth 2.0 callback handler for CLI tools & desktop apps. Cross-runtime (Node.js/Deno/Bun), MCP SDK integration, minimal deps, TypeScript-first.",
+      "Capture OAuth 2.0 authorization codes on a loopback redirect URI in CLI tools and desktop apps. Node.js, Deno and Bun, MCP SDK integration, zero runtime dependencies.",
 
     lastUpdated: true,
     cleanUrls: true,
@@ -58,7 +58,7 @@ export default withMermaid(
         { text: "API", link: "/api/get-auth-code" },
         { text: "Examples", link: "/examples/notion" },
         {
-          text: "v2.2.1",
+          text: "v3.0.0",
           items: [
             {
               text: "Release Notes",
@@ -82,16 +82,18 @@ export default withMermaid(
             },
             { text: "Getting Started", link: "/getting-started" },
             { text: "Core Concepts", link: "/core-concepts" },
+            { text: "Migrating to v3", link: "/migration-v3" },
             { text: "ADRs", link: "/adr/" },
           ],
         },
         {
           text: "API Reference",
           items: [
+            { text: "Overview", link: "/api/" },
             { text: "getAuthCode", link: "/api/get-auth-code" },
+            { text: "OAuthCallbackError", link: "/api/oauth-callback-error" },
             { text: "browserAuth", link: "/api/browser-auth" },
-            { text: "Storage Providers", link: "/api/storage-providers" },
-            { text: "OAuthError", link: "/api/oauth-error" },
+            { text: "CredentialStore", link: "/api/credential-store" },
             { text: "TypeScript Types", link: "/api/types" },
           ],
         },

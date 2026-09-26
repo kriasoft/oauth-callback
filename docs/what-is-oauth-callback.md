@@ -1,344 +1,92 @@
 ---
 title: What is OAuth Callback?
-description: Learn how OAuth Callback simplifies OAuth 2.0 authorization code capture for CLI tools, desktop apps, and MCP clients using localhost callbacks.
+description: How OAuth Callback captures OAuth 2.0 authorization codes on a loopback redirect URI for CLI tools, desktop apps and MCP clients.
 ---
 
 # What is OAuth Callback? {#top}
 
-An OAuth callback is the mechanism that allows OAuth 2.0 authorization servers to return authorization codes to your application after user authentication. For native applications like CLI tools, desktop apps, and MCP clients, receiving this callback requires spinning up a temporary HTTP server on localhost — a process that **OAuth Callback** makes trivially simple with just one function call.
+In the OAuth 2.0 authorization code flow, the authorization server sends the user's browser back to a **redirect URI** with a `code` (or an `error`) and the `state` your app sent. A web app handles that on a route of its server. A CLI tool or desktop app has no public server, so it listens on the **loopback interface** instead, as recommended by [RFC 8252](https://www.rfc-editor.org/rfc/rfc8252.html) (OAuth 2.0 for Native Apps).
 
-**OAuth Callback** is designed for developers building CLI tools, desktop applications, automation scripts, and Model Context Protocol (MCP) clients that need to capture OAuth authorization codes via a localhost callback. Whether you're automating workflows across services (Notion, Linear, GitHub), building developer tools, or creating MCP-enabled applications, **OAuth Callback** handles the complexity of the loopback redirect flow recommended by [RFC 8252](https://www.rfc-editor.org/rfc/rfc8252.html) while providing modern features like Dynamic Client Registration and flexible token storage — all with support for Node.js 18+, Deno, and Bun.
+**OAuth Callback** does exactly that part: it turns a browser authorization into a validated authorization code on a loopback redirect URI, in Node.js, Deno and Bun. For [Model Context Protocol](https://modelcontextprotocol.io) clients, `oauth-callback/mcp` adds a browser authorization provider for the MCP SDK.
 
-## Understanding OAuth Callbacks
-
-### What is a Callback URL in OAuth 2.0?
-
-In the OAuth 2.0 authorization code flow, the callback URL (also called redirect URI) is where the authorization server sends the user's browser after they approve or deny your application's access request. This URL receives critical information:
-
-- **On success**: An authorization `code` parameter that your app exchanges for access tokens
-- **On failure**: An `error` parameter describing what went wrong
-- **Security parameters**: The `state` value for CSRF protection
-
-For web applications, this callback is typically a route on your server. But for native applications without a public web server, you need a different approach.
-
-### The Loopback Redirect Pattern
-
-Native applications (CLIs, desktop apps) can't expose public URLs for callbacks. Instead, they use the **loopback interface** — a temporary HTTP server on `http://localhost` or `http://127.0.0.1`. This pattern, standardized in [RFC 8252](https://www.rfc-editor.org/rfc/rfc8252.html) (OAuth 2.0 for Native Apps), provides several benefits:
-
-- **No public exposure**: The callback server listens on the loopback interface
-- **Dynamic ports**: Apps can use any available port (e.g., 3000, 8080)
-- **Automatic cleanup**: The server shuts down immediately after receiving the callback
-- **Universal support**: Works across all platforms without special permissions
-
-Here's how the flow works:
+## The loopback flow
 
 ```mermaid
 sequenceDiagram
-    participant App as CLI/Desktop App
-    participant Browser as User's Browser
-    participant Auth as Authorization Server
-    participant Local as localhost:3000
-
-    App->>Local: Start HTTP server
-    App->>Browser: Open authorization URL
-    Browser->>Auth: Request authorization
-    Auth->>Browser: Show consent screen
-    Browser->>Auth: User approves
-    Auth->>Browser: Redirect to localhost:3000/callback?code=xyz
-    Browser->>Local: GET /callback?code=xyz
-    Local->>App: Capture code
-    App->>Local: Shutdown server
-    Local->>Browser: Show success page
-```
-
-### Security Best Practices
-
-OAuth 2.0 for native apps requires additional security measures:
-
-**Proof Key for Code Exchange (PKCE)** - [RFC 7636](https://www.rfc-editor.org/rfc/rfc7636.html) mandates using PKCE for public clients (those without client secrets). PKCE prevents authorization code interception attacks by binding the code exchange to a cryptographic challenge.
-
-```mermaid
-sequenceDiagram
-    participant App as Native App
+    participant App as Your app
+    participant Lib as getAuthCode()
     participant Browser
-    participant Auth as Auth Server
+    participant AS as Authorization server
 
-    Note over App: Generate code_verifier
-    Note over App: Hash to create code_challenge
-
-    App->>Browser: Open /authorize?code_challenge=...
-    Browser->>Auth: Authorization request with challenge
-    Auth->>Auth: Store challenge
-    Auth->>Browser: Redirect with code
-    Browser->>App: Return code
-
-    App->>Auth: POST /token with code + verifier
-    Auth->>Auth: Verify: hash(verifier) == challenge
-    Auth->>App: Return access token
+    App->>Lib: getAuthCode(builder)
+    Lib->>Lib: Bind 127.0.0.1 on a free port, generate state
+    Lib->>App: builder({ redirectUri, state, signal })
+    App-->>Lib: Authorization URL
+    Lib->>Browser: Open URL (redirect_uri and state appended)
+    Browser->>AS: User signs in and consents
+    AS->>Browser: Redirect to http://127.0.0.1:port/callback?code=…&state=…
+    Browser->>Lib: GET /callback
+    Lib->>Browser: Neutral "You can close this tab" page
+    Lib->>Lib: Close listener
+    Lib-->>App: { code, redirectUri, params }
+    App->>AS: Token request (your code)
 ```
 
-**State Parameter** - A random value that prevents CSRF attacks. Your app generates this value, includes it in the authorization request, and validates it in the callback.
+`getAuthCode()` handles the listener, the `state`, the browser and the callback. Token exchange, PKCE and client secrets stay in your code, so it works with any provider. With `oauth-callback/mcp`, the MCP SDK does the OAuth work and the library supplies the browser side.
 
-**Dynamic Client Registration (DCR)** - [RFC 7591](https://www.rfc-editor.org/rfc/rfc7591.html) allows apps to register OAuth clients on-the-fly without pre-configuration. This is particularly useful for MCP servers where users shouldn't need to manually register OAuth applications.
+## What it handles
 
-## How OAuth Callback Solves It
+- **Redirect URI.** Binds `http://127.0.0.1:<free port>/callback` by default and calls your builder with it, so you never pick a port. A fixed `redirectUri` (including `localhost` or `[::1]`) works too.
+- **State.** Every flow has one. Only a callback with exactly that `state` and an unambiguous `code` or `error` completes the flow; anything else gets a 400 and the flow keeps waiting.
+- **URL validation.** The authorization URL must be `https:` (or loopback `http:`), with `response_type=code` and a query response mode. Unsafe URLs never reach a browser.
+- **Browser.** Opens the system browser by default, or hands the URL to your `launch` function (headless, SSH, QR codes, tests).
+- **Pages.** The browser sees a neutral page that never renders callback data, sent with `Content-Security-Policy`, `Cache-Control: no-store`, `Referrer-Policy: no-referrer` and `X-Content-Type-Options: nosniff`.
+- **Cleanup.** A timeout (5 minutes by default) and an optional `AbortSignal` bound the flow; the listener always closes.
 
-OAuth Callback eliminates the boilerplate of implementing loopback redirects. Instead of manually managing servers, ports, and browser launches, you get a complete solution in one function call.
+## MCP integration
 
-### Core Functionality
+```ts
+import { Client } from "@modelcontextprotocol/client";
+import { browserAuth } from "oauth-callback/mcp";
 
-The library handles the entire OAuth callback flow:
-
-1. **Starts a localhost HTTP server** on your specified port
-2. **Opens the user's browser** to the authorization URL
-3. **Captures the callback** with the authorization code
-4. **Returns the result** as a clean JavaScript object
-5. **Shuts down the server** automatically
-
-### Zero Configuration Example
-
-Here's a complete OAuth flow in just 6 lines:
-
-```typescript {3-5}
-import { getAuthCode } from "oauth-callback";
-
-const result = await getAuthCode(
-  "https://github.com/login/oauth/authorize?client_id=xxx&redirect_uri=http://localhost:3000/callback",
-);
-
-console.log("Authorization code:", result.code);
-```
-
-That's it. No server setup, no browser management, no cleanup code.
-
-### Cross-Runtime Support
-
-OAuth Callback uses modern Web Standards APIs (Request, Response, URL) that work identically across:
-
-- **Node.js 18+** - Native fetch and Web Streams support
-- **Deno** - First-class Web Standards implementation
-- **Bun** - High-performance runtime with built-in APIs
-
-This means your OAuth code is portable across runtimes without modifications.
-
-### MCP Integration
-
-For Model Context Protocol applications, OAuth Callback provides the `browserAuth()` provider that integrates seamlessly with the MCP SDK:
-
-::: code-group
-
-```typescript [MCP with OAuth Callback]
-import { browserAuth, fileStore } from "oauth-callback/mcp";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-
-const authProvider = browserAuth({
-  store: fileStore(), // Persist tokens to ~/.mcp/tokens.json
-  scope: "read write",
+const auth = browserAuth({
+  serverUrl: "https://mcp.notion.com/mcp",
+  redirectUri: "http://127.0.0.1:8765/callback",
+  clientName: "Acme CLI",
 });
 
-// Use directly with MCP transports
-const transport = new StreamableHTTPClientTransport(
-  new URL("https://mcp.example.com"),
-  { authProvider },
-);
+const client = new Client({ name: "acme", version: "1.0.0" });
+await auth.connect(client);
 ```
 
-```typescript [Namespace Import]
-import { mcp } from "oauth-callback";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+The MCP SDK owns discovery, Dynamic Client Registration, PKCE, token exchange, refresh and issuer checks. `browserAuth()` owns the browser, the loopback listener, flow ownership and credential storage. See [browserAuth](/api/browser-auth).
 
-const authProvider = mcp.browserAuth({
-  store: mcp.fileStore(),
-  scope: "read write",
-});
-```
+## When to use it
 
-:::
+Good fit:
 
-::: tip MCP Integration Features
-The MCP integration handles:
+- CLI tools and desktop apps that sign users in through their browser
+- MCP clients connecting to OAuth-protected servers
+- Scripts and dev tools that need a user's token once
 
-- **Dynamic Client Registration** when supported by the server
-- **Token persistence** with `fileStore()` or ephemeral `inMemoryStore()`
-- **Automatic re-authentication** when tokens expire
-- **Multiple app namespace support** via `storeKey` option
-  :::
+Look elsewhere when:
 
-## When to Use OAuth Callback
+- You run a web app with its own server: handle the redirect on a route
+- There is no browser on the user's machine: the [device authorization grant](https://www.rfc-editor.org/rfc/rfc8628.html) fits better, though a custom `launch` that prints the URL covers many SSH cases
+- You need machine-to-machine auth: use the client credentials grant
 
-### Perfect For
+## Requirements
 
-OAuth Callback is ideal when:
+- Node.js 22+, Deno 2 or Bun 1.2+
+- A browser on the user's machine
+- An OAuth client whose redirect URIs include your loopback URI, e.g. `http://127.0.0.1/callback` for providers that allow any loopback port ([RFC 8252 §7.3](https://www.rfc-editor.org/rfc/rfc8252.html#section-7.3)), or a fixed `http://127.0.0.1:8765/callback`. MCP servers that support Dynamic Client Registration need no pre-registration.
+- `@modelcontextprotocol/client` 2.1+ for `oauth-callback/mcp`
 
-- **You control the user's machine** - CLI tools, desktop apps, development tools
-- **You can open a browser** - The user has a default browser configured
-- **You need quick setup** - No server infrastructure or complex configuration
-- **You're building MCP clients** - Direct integration with Model Context Protocol SDK
+The package has zero runtime dependencies.
 
-### Consider Alternatives When
+## Next steps
 
-**Device Authorization Flow** ([RFC 8628](https://www.rfc-editor.org/rfc/rfc8628.html)) might be better if:
-
-- **No browser access** - SSH sessions, headless servers, CI/CD environments
-- **Remote terminals** - The auth happens on a different device than the app
-- **Input-constrained devices** - Smart TVs, IoT devices without keyboards
-
-The Device Flow shows a code to the user that they enter on another device, eliminating the need for a browser on the same machine. However, it requires OAuth provider support and a more complex user experience.
-
-```mermaid
-flowchart TD
-    subgraph "OAuth Callback Flow"
-        A1[CLI App] -->|Opens browser| B1[Auth Page]
-        B1 -->|User authorizes| C1[localhost:3000/callback]
-        C1 -->|Returns code| A1
-        A1 -->|Exchange code| D1[Access Token]
-    end
-
-    subgraph "Device Authorization Flow"
-        A2[CLI App] -->|Request device code| B2[Auth Server]
-        B2 -->|Returns code + URL| A2
-        A2 -->|Display to user| C2["User Code: ABCD-1234"]
-        C2 -->|User enters on phone/laptop| D2[Auth Page]
-        D2 -->|User authorizes| E2[Auth Server]
-        A2 -->|Poll for token| E2
-        E2 -->|Returns token| F2[Access Token]
-    end
-```
-
-## Security Considerations
-
-OAuth Callback implements security best practices by default:
-
-::: info Security Features
-
-- **Loopback by default** - The callback server binds to `localhost` by default. Keep `hostname` on a loopback interface (`127.0.0.1` or `::1`) so remote hosts can't reach it.
-- **Automatic cleanup** - The HTTP server shuts down immediately after receiving the callback, minimizing the attack surface window.
-- **No persistent state** - Server is ephemeral and leaves no traces after completion.
-
-:::
-
-::: warning Always Use State
-Always include a random `state` in the authorization URL. `getAuthCode` ignores
-callbacks that don't echo it:
-
-```typescript {1-2}
-const state = crypto.randomUUID();
-const authUrl = `https://example.com/authorize?state=${state}&...`;
-
-const result = await getAuthCode(authUrl);
-```
-
-:::
-
-::: details Proof Key for Code Exchange (PKCE) Implementation
-For public clients, implement Proof Key for Code Exchange as required by [RFC 7636](https://www.rfc-editor.org/rfc/rfc7636.html):
-
-```typescript {3-4,7,10}
-import { createHash, randomBytes } from "crypto";
-
-const verifier = randomBytes(32).toString("base64url");
-const challenge = createHash("sha256").update(verifier).digest("base64url");
-
-// Include challenge in authorization request
-const authUrl = `https://example.com/authorize?code_challenge=${challenge}&code_challenge_method=S256&...`;
-
-// Include verifier in token exchange
-const tokenResponse = await fetch(tokenUrl, {
-  method: "POST",
-  body: new URLSearchParams({
-    code: result.code,
-    code_verifier: verifier,
-    // ... other parameters
-  }),
-});
-```
-
-:::
-
-**Token storage choices** - Choose storage based on your security requirements:
-
-::: code-group
-
-```typescript [Ephemeral Storage]
-// Tokens lost on restart (more secure)
-import { browserAuth, inMemoryStore } from "oauth-callback/mcp";
-
-const authProvider = browserAuth({
-  store: inMemoryStore(),
-});
-```
-
-```typescript [Persistent Storage]
-// Tokens saved to disk (convenient)
-import { browserAuth, fileStore } from "oauth-callback/mcp";
-
-const authProvider = browserAuth({
-  store: fileStore("~/.myapp/tokens.json"),
-});
-```
-
-:::
-
-## Requirements and Registration
-
-### Prerequisites
-
-::: details System Requirements
-
-| Requirement           | Details                                                          |
-| --------------------- | ---------------------------------------------------------------- |
-| **Runtime**           | Node.js 18+, Deno, or Bun                                        |
-| **OAuth Application** | Register your app with the OAuth provider                        |
-| **Redirect URI**      | Configure `http://localhost:3000/callback` (or your chosen port) |
-| **Browser**           | User must have a default browser configured                      |
-| **Permissions**       | Ability to bind to localhost ports                               |
-
-:::
-
-### Standard OAuth Registration
-
-Most OAuth providers require pre-registering your application:
-
-1. Create an OAuth app in the provider's developer console
-2. Set redirect URI to `http://localhost:3000/callback`
-3. Copy your client ID (and secret if provided)
-4. Use credentials in your code
-
-### Dynamic Client Registration for MCP
-
-Some MCP servers support Dynamic Client Registration ([RFC 7591](https://www.rfc-editor.org/rfc/rfc7591.html)), eliminating pre-registration:
-
-::: tip No Pre-Registration Required
-
-```typescript {1}
-// No client_id or client_secret needed!
-const authProvider = browserAuth({
-  scope: "read write",
-  store: fileStore(),
-});
-```
-
-:::
-
-The Notion MCP example demonstrates this — the server automatically registers your client on first use. This greatly simplifies distribution of MCP-enabled tools.
-
-```mermaid
-flowchart LR
-    subgraph "Traditional OAuth Setup"
-        A[Developer] -->|1 Register app| B[OAuth Provider]
-        B -->|2 Get client_id| A
-        A -->|3 Embed client_id in app| D[CLI App]
-        A -->|4 Distribute app| C[User]
-        C -->|5 Runs app to authenticate| D
-    end
-
-    subgraph "Dynamic Client Registration"
-        E[User] -->|1 Run app| F[CLI App]
-        F -->|2 Auto-register| G[OAuth Provider]
-        G -->|3 Return credentials| F
-        F -->|4 Complete auth| H[Ready to use!]
-    end
-
-    style H fill:#3498DB
-```
+- [Getting Started](/getting-started)
+- [Core Concepts](/core-concepts)
+- [API Reference](/api/)
+- [Migrating from v2](/migration-v3)
