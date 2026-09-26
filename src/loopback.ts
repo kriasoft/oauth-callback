@@ -162,9 +162,9 @@ export async function listenForCallback(
   let finalResponse: Promise<void> | undefined;
 
   const server = createServer((req, res) => {
-    const url = URL.canParse(req.url ?? "", redirect.href)
-      ? new URL(req.url!, redirect)
-      : undefined;
+    // Origin-form only; prefixing the origin keeps a `//path` from parsing as a host.
+    const target = req.url?.startsWith("/") ? redirect.origin + req.url : "";
+    const url = URL.canParse(target) ? new URL(target) : undefined;
     if (!url) return send(res, 400, "text/plain", REJECTED);
     if (url.pathname !== redirect.pathname)
       return send(res, 404, "text/plain", "Not Found");

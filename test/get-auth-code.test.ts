@@ -126,6 +126,26 @@ describe("builder form", () => {
     expect(redirect.searchParams.get("tenant")).toBe("a");
   });
 
+  test("a path starting with // is a path, not a host", async () => {
+    const { connect } = await import("node:net");
+    const result = await getAuthCode(build, {
+      redirectUri: "http://127.0.0.1:0//callback",
+      // Raw request like a browser's: Bun's fetch would collapse the slashes.
+      launch: (url) => {
+        const target = new URL(url.searchParams.get("redirect_uri")!);
+        const state = url.searchParams.get("state");
+        const socket = connect(Number(target.port), "127.0.0.1", () =>
+          socket.end(
+            `GET //callback?code=c&state=${state} HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n`,
+          ),
+        );
+        socket.resume();
+      },
+      timeout: 2000,
+    });
+    expect(result.code).toBe("c");
+  });
+
   test("a slow builder hits the timeout and never launches", async () => {
     let launched = false;
     const error = await getAuthCode(
@@ -372,7 +392,7 @@ describe("callbacks", () => {
         reply = await new Promise<string>((resolve) => {
           const socket = connect(Number(port), "127.0.0.1", () =>
             socket.write(
-              "GET //[ HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n",
+              "GET x HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n",
             ),
           );
           let data = "";

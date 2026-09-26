@@ -39,6 +39,7 @@ const { code, redirectUri } = await getAuthCode(
       method: "POST",
       body: new URLSearchParams({
         client_id,
+        response_type: "code",
         redirect_uri: redirectUri,
         state,
         code_challenge,
