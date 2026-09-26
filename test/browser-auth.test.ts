@@ -478,6 +478,25 @@ describe("credentials", () => {
     expect(store.value).toBeUndefined();
   });
 
+  test("a client registration still being persisted blocks new flows", async () => {
+    let release!: () => void;
+    const store: CredentialStore = {
+      load: async () => undefined,
+      save: () => new Promise<void>((resolve) => (release = resolve)),
+    };
+    const auth = setup({ store });
+    await auth.tokens(); // load the slot
+    const saving = auth.saveClientInformation!({
+      client_id: "a",
+      issuer: "https://as",
+    });
+    await sleep(0);
+    expect(() => auth.state!()).toThrow(UnauthorizedError);
+    release();
+    await saving;
+    expect(await auth.state!()).toBeString();
+  });
+
   test("concurrent client and token saves both persist", async () => {
     const store = memory();
     const auth = setup({ store });

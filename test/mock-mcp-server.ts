@@ -134,6 +134,7 @@ export async function startMockServer(options: MockOptions = {}) {
           .digest("base64url");
         if (
           !code ||
+          code.clientId !== params.get("client_id") ||
           code.challenge !== challenge ||
           code.redirectUri !== params.get("redirect_uri")
         )
@@ -142,7 +143,8 @@ export async function startMockServer(options: MockOptions = {}) {
       }
       if (params.get("grant_type") === "refresh_token") {
         const clientId = refreshTokens.get(params.get("refresh_token")!);
-        if (!clientId) return json(res, 400, { error: "invalid_grant" });
+        if (!clientId || clientId !== params.get("client_id"))
+          return json(res, 400, { error: "invalid_grant" });
         return json(res, 200, issue(clientId));
       }
       return json(res, 400, { error: "unsupported_grant_type" });

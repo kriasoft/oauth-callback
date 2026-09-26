@@ -485,16 +485,21 @@ describe("lifecycle", () => {
     expect(result.code).toBe("test-code");
   });
 
-  test("valid callback, then the deadline passes during cleanup: success stands", async () => {
+  test("valid callback, then the signal aborts during cleanup: success stands", async () => {
+    // Timeout and caller abort share one composed signal; the callback response arrives
+    // after the flow settled, while the listener is still closing.
+    const controller = new AbortController();
+    let work: Promise<void> | undefined;
     const result = await getAuthCode(build, {
-      timeout: 100,
-      launch: async (url) => {
-        const response = await respond(url);
-        await sleep(150); // keep the page response open past the deadline
-        await response.text();
-      },
+      signal: controller.signal,
+      launch: (url) =>
+        void (work = respond(url).then(() =>
+          controller.abort(new Error("late")),
+        )),
     });
+    await work;
     expect(result.code).toBe("test-code");
+    expect(controller.signal.aborted).toBe(true);
   });
 
   test("launcher rejects, then callback arrives: launcher error stands", async () => {

@@ -115,6 +115,8 @@ interface Flow {
   listener?: CallbackListener;
   /** Callback params, or the launcher/deadline failure; set once redirected, kept until consumed. */
   result?: Promise<URLSearchParams>;
+  /** PKCE verifier, written only by the reserving owner before redirect. */
+  verifier?: string;
   failed: boolean;
   completing: boolean;
 }
@@ -138,7 +140,8 @@ const EXTERNAL: Owner = {};
  */
 class Session {
   flow?: Flow;
-  #verifier?: string;
+  /** Client registrations still being persisted; they pin out new flows (see #saveClient). */
+  #savingClient = 0;
   #discovery?: OAuthDiscoveryState;
 
   constructor(
@@ -161,11 +164,19 @@ class Session {
       tokens: async () => (await credentials.read()).tokens,
       saveTokens: (tokens) => credentials.update((c) => ({ ...c, tokens })),
       redirectToAuthorization: (url) => this.#redirect(owner, url),
-      saveCodeVerifier: (verifier) => void (this.#verifier = verifier),
+      saveCodeVerifier: (verifier) => {
+        // Bound to the flow its owner reserved: a late write from an abandoned attempt
+        // must not replace a newer flow's verifier.
+        const flow = this.flow;
+        if (!flow || flow.owner !== owner || flow.result || owner.abandoned)
+          throw new Error("saveCodeVerifier() without a matching state()");
+        flow.verifier = verifier;
+      },
       codeVerifier: () => {
-        if (!this.#verifier)
+        const verifier = this.flow?.verifier;
+        if (!verifier)
           throw new Error("No PKCE code verifier for this authorization");
-        return this.#verifier;
+        return verifier;
       },
       saveDiscoveryState: (state) => void (this.#discovery = state),
       discoveryState: () => this.#discovery,
@@ -173,7 +184,8 @@ class Session {
     };
     // Omitted for a static client, so the SDK itself refuses DCR and foreign issuers.
     if (!config.staticClient)
-      provider.saveClientInformation = (client) => this.#saveClient(client);
+      provider.saveClientInformation = (client) =>
+        this.#saveClient(owner, client);
     return provider;
   }
 
@@ -193,7 +205,7 @@ class Session {
       throw new Error(
         "The connect() call that started this authorization has ended",
       );
-    if (this.#active())
+    if (this.#active() || this.#savingClient)
       throw new UnauthorizedError(
         "An MCP authorization is already in progress",
       );
@@ -286,6 +298,9 @@ class Session {
       try {
         // Code or error params: finishAuth verifies `iss` before trusting `error*`.
         await transport.finishAuth(params);
+      } catch (error) {
+        combined.throwIfAborted();
+        throw error;
       } finally {
         flow.owner.signal = undefined;
       }
@@ -319,23 +334,37 @@ class Session {
     return client;
   }
 
-  async #saveClient(client: StoredOAuthClientInformation): Promise<void> {
-    // Client identity is pinned while a flow is active (see #redirect).
+  async #saveClient(
+    owner: Owner,
+    client: StoredOAuthClientInformation,
+  ): Promise<void> {
+    if (owner.abandoned)
+      throw new Error(
+        "The connect() call that started this registration has ended",
+      );
+    // Client identity is pinned while a flow is active (see #redirect), and a save
+    // pins out new flows until it is persisted, so no flow starts on the old client.
     if (this.#active())
       throw new Error(
         "Can't register an OAuth client while an authorization is in progress",
       );
-    // Tokens belong to the client that obtained them.
-    await this.credentials.update((c) => ({
-      client,
-      tokens: c.client?.client_id === client.client_id ? c.tokens : undefined,
-    }));
+    this.#savingClient++;
+    try {
+      // Tokens belong to the client that obtained them.
+      await this.credentials.update((c) => ({
+        client,
+        tokens: c.client?.client_id === client.client_id ? c.tokens : undefined,
+      }));
+    } finally {
+      this.#savingClient--;
+    }
   }
 
   async #invalidate(
     scope: "all" | "client" | "tokens" | "verifier" | "discovery",
   ): Promise<void> {
-    if (scope === "verifier" || scope === "all") this.#verifier = undefined;
+    if ((scope === "verifier" || scope === "all") && this.flow)
+      this.flow.verifier = undefined;
     if (scope === "discovery" || scope === "all") this.#discovery = undefined;
     if (scope === "all" && this.flow && !this.flow.completing)
       this.end(this.flow);
