@@ -12,7 +12,8 @@ bun install
 
 ```bash
 bun run build         # Build the package
-bun run test          # Run unit tests
+bun run test          # Unit + MCP e2e tests
+bun run test:runtimes # Smoke-test the build on Node, Deno and Bun
 bun run typecheck     # Check TypeScript types
 bun run validate      # Run all checks (format, typecheck, test, publint)
 ```
@@ -20,8 +21,7 @@ bun run validate      # Run all checks (format, typecheck, test, publint)
 ## Testing Locally
 
 ```bash
-bun run example:demo  # Interactive demo with mock OAuth server
-bun run test:login    # Manual browser test for page rendering
+bun run example:demo  # Interactive demo with a mock authorization server
 ```
 
 ## Pull Requests
@@ -32,8 +32,8 @@ bun run test:login    # Manual browser test for page rendering
 
 ## Project Structure
 
-- `src/` - Source code
-- `templates/` - HTML templates (run `bun run build:templates` after changes)
+- `src/` - Source code (`src/mcp/` for the MCP SDK integration)
+- `test/` - Tests, including a mock MCP + authorization server
 - `examples/` - Usage examples
 - `docs/` - Documentation site (VitePress)
 
