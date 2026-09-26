@@ -107,7 +107,7 @@ interface Owner {
   signal?: AbortSignal;
   /** Its `connect()` attempt failed: late SDK hooks must not start a flow or open a browser. */
   abandoned?: boolean;
-  /** Session generation when its current SDK auth pass began; guards registrations (see Session.#generation). */
+  /** Session generation when its current SDK auth pass began; guards registrations and state() (see Session.#generation). */
   generation?: number;
 }
 
@@ -162,15 +162,25 @@ class Session {
   #discovery?: OAuthDiscoveryState;
   /**
    * Bumped by credential invalidation, so work that began earlier can't undo a sign-out.
-   * The SDK gives hooks no attempt identity, and transports you create share one owner, so
-   * token saves don't rely on owners alone: a save from a flow's owner while its finishAuth()
-   * runs is the exchange and checks the stamp taken when completion started (Flow.generation);
-   * any other save is a refresh, which may only replace tokens still stored. (On your own
-   * transports a refresh that lands exactly during an exchange passes as that exchange.) A registration checks its owner's stamp, taken when its SDK pass read
-   * clientInformation(); on your own transports a concurrent pass can refresh that stamp,
-   * which at worst keeps a new client registration, never tokens.
+   * On connect() transports this is airtight: invalidation also aborts their in-flight
+   * OAuth requests (see cancellable()), so no earlier response can arrive. The checks below
+   * are the backstop for transports you create, where the SDK gives hooks no attempt
+   * identity and all transports share one owner:
+   * - a token save from a flow's owner while its finishAuth() runs is the exchange and must
+   *   match the stamp taken when completion started (Flow.generation);
+   * - any other token save is a refresh and may only replace tokens still stored;
+   * - a registration and state() check the stamp their SDK pass took when it read
+   *   clientInformation().
+   * A concurrent pass on your own transports can re-stamp the shared owner, so OAuth work
+   * there must be serialized (documented on completeAuthorization()).
    */
   #generation = 0;
+  #invalidation = new AbortController();
+
+  /** Aborted on credential invalidation: connect() transports' OAuth requests end with it. */
+  get invalidationSignal(): AbortSignal {
+    return this.#invalidation.signal;
+  }
 
   constructor(
     readonly config: Config,
@@ -261,6 +271,10 @@ class Session {
       throw new Error(
         "The connect() call that started this authorization has ended",
       );
+    // A pass that began before an invalidation (e.g. a refresh it aborted) must not fall
+    // back to opening the browser: signing out never starts a sign-in.
+    if ((owner.generation ?? 0) !== this.#generation)
+      throw new Error(INVALIDATED);
     const active = this.#active();
     if (active || this.#savingClient) {
       const message = "An MCP authorization is already in progress";
@@ -462,8 +476,11 @@ class Session {
       this.#discovery = undefined;
       if (this.flow) this.flow.discovery = undefined;
     }
-    if (scope === "all" || scope === "client" || scope === "tokens")
+    if (scope === "all" || scope === "client" || scope === "tokens") {
       this.#generation++;
+      this.#invalidation.abort(new Error(INVALIDATED));
+      this.#invalidation = new AbortController();
+    }
     if (scope === "all" && this.flow && !this.flow.completing)
       this.end(this.flow);
     // A static client is configuration, not state: it survives every scope.
@@ -598,21 +615,21 @@ export function browserAuth(options: BrowserAuthOptions): BrowserAuth {
   }
 
   /**
-   * The caller's fetch, with OAuth traffic (discovery, DCR, token exchange) cancellable
-   * through `owner.signal`. MCP traffic always targets `serverUrl` exactly and is left alone:
-   * a long-lived SSE stream or a concurrent request must not inherit a connect() or flow signal.
+   * The caller's fetch, with OAuth traffic (discovery, DCR, refresh, exchange) cancellable
+   * through `owner.signal` and credential invalidation, so no response from before an
+   * invalidation can be saved after it. MCP traffic always targets `serverUrl` exactly and is
+   * left alone: a long-lived SSE stream or a concurrent request must not inherit either.
    */
   function cancellable(
     owner: Owner,
     base: FetchLike = (url, init) => fetch(url, init),
   ): FetchLike {
     return (url, init) => {
-      const signal = owner.signal;
-      if (!signal || String(url) === config.serverUrl.href)
-        return base(url, init);
+      if (String(url) === config.serverUrl.href) return base(url, init);
+      const signals = [init?.signal, owner.signal, session.invalidationSignal];
       return base(url, {
         ...init,
-        signal: init?.signal ? AbortSignal.any([init.signal, signal]) : signal,
+        signal: AbortSignal.any(signals.filter((s) => s != null)),
       });
     };
   }
@@ -687,7 +704,7 @@ export function browserAuth(options: BrowserAuthOptions): BrowserAuth {
     transport,
     options = {},
   ) => {
-    options.signal?.throwIfAborted();
+    // No early abort check: an aborted signal must still consume (and release) the flow.
     const flow = session.flow;
     if (!flow?.result)
       throw new Error("No MCP authorization is waiting to be completed");

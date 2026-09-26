@@ -211,6 +211,8 @@ export async function startMockServer(options: MockOptions = {}) {
     authorizeRequests,
     tokenRequests,
     knobs,
+    /** Rejects every access token issued so far, as if they had expired. */
+    expireAccessTokens: () => accessTokens.clear(),
     /** Plays the user approving (or denying) in the browser: redirects to the callback. */
     async authorize(url: URL, overrides: Record<string, string> = {}) {
       authorizeRequests.push(url);

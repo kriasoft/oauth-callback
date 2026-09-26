@@ -76,7 +76,7 @@ Connects `client` to `serverUrl` over a Streamable HTTP transport it creates, co
 
 ### `completeAuthorization(transport, options?)`
 
-Low-level, for transports you create. After the SDK throws `UnauthorizedError`, waits for the pending callback and exchanges it on `transport`, which must be the transport that received the 401/403. Then close it and reconnect with a new transport. A flow on your own transports stays pending until `completeAuthorization()` consumes it, even after its launcher failed or it timed out (it then rejects with that error), so always call it after `UnauthorizedError`. Give that transport a bounded `fetch`, since the library can't cancel a request it didn't start.
+Low-level, for transports you create. After the SDK throws `UnauthorizedError`, waits for the pending callback and exchanges it on `transport`, which must be the transport that received the 401/403. Then close it and reconnect with a new transport. A flow on your own transports stays pending until `completeAuthorization()` consumes it, even after its launcher failed or it timed out (it then rejects with that error), so always call it after `UnauthorizedError`. Run OAuth work on your own transports one attempt at a time: the provider can't tell their concurrent attempts apart, so its sign-out and flow-ownership guarantees assume serialized use (`connect()` has no such limit). Give that transport a bounded `fetch`, since the library can't cancel a request it didn't start.
 
 ### Provider hooks
 

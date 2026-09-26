@@ -546,6 +546,22 @@ describe("flow ownership", () => {
     await waiting;
   });
 
+  test("an aborted signal still consumes a pending flow on your own transport", async () => {
+    const auth = setup({ launch: () => {} });
+    await expect(
+      newClient().connect(ownTransport(auth)),
+    ).rejects.toBeInstanceOf(UnauthorizedError);
+    const reason = new Error("gone");
+    await expect(
+      auth.completeAuthorization(ownTransport(auth), {
+        signal: AbortSignal.abort(reason),
+      }),
+    ).rejects.toBe(reason);
+    await expect(
+      newClient().connect(ownTransport(auth)),
+    ).rejects.toBeInstanceOf(UnauthorizedError); // a new flow, not "already in progress"
+  });
+
   test("own transports: another attempt's discovery can't reach a pending flow", async () => {
     let launched!: (url: URL) => void;
     const launch = new Promise<URL>((resolve) => (launched = resolve));
@@ -744,6 +760,31 @@ describe("credentials", () => {
       .catch(() => {}); // re-stamps the shared owner
     expect((await completing).message).toMatch(/invalidated/);
     expect(await auth.tokens()).toBeUndefined();
+  });
+
+  test("sign-out aborts a live transport's refresh; re-authorization on it isn't overwritten", async () => {
+    const auth = setup();
+    const client = newClient();
+    await auth.connect(client);
+    mock.expireAccessTokens();
+    mock.knobs.tokenDelay = 300;
+    const before = mock.tokenRequests.length;
+    const refreshing = client.listTools().catch((e) => e);
+    while (mock.tokenRequests.length === before) await sleep(10);
+    const invalidatedAt = Date.now();
+    await auth.invalidateCredentials!("tokens");
+    const error = await refreshing;
+    expect(Date.now() - invalidatedAt).toBeLessThan(200); // aborted, not answered
+    expect(error).not.toBeInstanceOf(UnauthorizedError); // no browser for a sign-out
+    // Fresh authorization on the same transport; its exchange overlaps where the stale
+    // refresh response would have landed.
+    await expect(client.listTools()).rejects.toBeInstanceOf(UnauthorizedError);
+    await auth.connect(client);
+    expect(mock.tokenRequests.at(-1)!.get("grant_type")).toBe(
+      "authorization_code",
+    );
+    await sleep(300);
+    expect(await client.listTools()).toEqual({ tools: [] });
   });
 
   for (const scope of ["client", "all"] as const)
