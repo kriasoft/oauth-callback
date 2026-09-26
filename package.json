@@ -106,15 +106,15 @@
     "format": "bun prettier --write .",
     "format:check": "bun prettier --check .",
     "lint:package": "publint",
-    "validate": "bun run format:check && bun run typecheck && bun run test && bun run lint:package",
+    "validate": "bun run format:check && bun run typecheck && bun run test && bun run build && bun run lint:package",
     "example:demo": "bun run examples/demo.ts",
     "example:github": "bun run examples/github.ts",
     "example:notion": "bun run examples/notion.ts",
-    "prepublishOnly": "bun run build && bun run lint:package",
+    "prepublishOnly": "bun run validate",
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",
     "docs:preview": "vitepress preview docs",
     "docs:deploy": "bunx gh-pages -d docs/.vitepress/dist",
-    "test:runtimes": "bun run build && node test/runtime-smoke.mjs && deno run --allow-net --allow-read --allow-write --allow-env --allow-sys test/runtime-smoke.mjs && bun test/runtime-smoke.mjs"
+    "test:runtimes": "bun run build && node test/runtime-smoke.mjs && deno run --allow-net --allow-read --allow-write --allow-env=TMPDIR,TMP,TEMP test/runtime-smoke.mjs && bun test/runtime-smoke.mjs"
   }
 }
