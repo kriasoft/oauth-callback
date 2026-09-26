@@ -110,7 +110,7 @@ const auth = browserAuth({
 });
 ```
 
-**Sign out.** `await auth.invalidateCredentials("all")` clears the store.
+**Sign out.** `await client.close()`, then `await auth.invalidateCredentials("all")` to clear the store.
 
 ## Troubleshooting
 

@@ -51,6 +51,24 @@ const setup = (options: Partial<BrowserAuthOptions> = {}) =>
     ...options,
   });
 
+/** A store holding client "a" and its tokens, as after a completed authorization. */
+const authorized = () => {
+  const store = memory();
+  const issuer = "https://as";
+  store.value = JSON.stringify({
+    version: 1,
+    serverUrl: new URL(mock.mcpUrl).href,
+    client: { client_id: "a", issuer, redirect_uris: [redirectUri] },
+    tokens: {
+      access_token: "old",
+      token_type: "Bearer",
+      issuer,
+      client_id: "a",
+    },
+  });
+  return store;
+};
+
 const memory = (): CredentialStore & { value?: string } => {
   const store: CredentialStore & { value?: string } = {
     load: async () => store.value,
@@ -474,6 +492,103 @@ describe("flow ownership", () => {
     );
   });
 
+  const ownTransport = (auth: ReturnType<typeof setup>) =>
+    new StreamableHTTPClientTransport(new URL(mock.mcpUrl), {
+      authProvider: auth,
+    });
+
+  test("own transports: a refresh can't restore invalidated tokens after another attempt starts", async () => {
+    const store = memory();
+    await setup({ store }).connect(newClient());
+    const doc = JSON.parse(store.value!);
+    doc.tokens.access_token = "expired";
+    store.value = JSON.stringify(doc);
+    mock.knobs.tokenDelay = 300;
+    const auth = setup({ store, launch: () => {} });
+    const refreshing = newClient()
+      .connect(ownTransport(auth))
+      .catch((e) => e);
+    const before = mock.tokenRequests.length;
+    while (mock.tokenRequests.length === before) await sleep(10);
+    await auth.invalidateCredentials!("tokens");
+    // A second attempt on the shared owner re-reads clientInformation() and starts a flow.
+    await expect(
+      newClient().connect(ownTransport(auth)),
+    ).rejects.toBeInstanceOf(UnauthorizedError);
+    await refreshing;
+    expect(await auth.tokens()).toBeUndefined();
+    expect(JSON.parse(store.value!).tokens).toBeUndefined();
+  });
+
+  test("a refresh landing while another flow awaits its callback can't restore tokens", async () => {
+    const store = memory();
+    await setup({ store }).connect(newClient());
+    const doc = JSON.parse(store.value!);
+    doc.tokens.access_token = "expired";
+    store.value = JSON.stringify(doc);
+    mock.knobs.tokenDelay = 300;
+    const auth = setup({ store, launch: () => {} });
+    const refreshing = auth.connect(newClient()).catch((e) => e);
+    const before = mock.tokenRequests.length;
+    while (mock.tokenRequests.length === before) await sleep(10);
+    await auth.invalidateCredentials!("tokens");
+    const transport = ownTransport(auth);
+    await expect(newClient().connect(transport)).rejects.toBeInstanceOf(
+      UnauthorizedError,
+    );
+    const controller = new AbortController();
+    const waiting = auth
+      .completeAuthorization(transport, { signal: controller.signal })
+      .catch(() => {});
+    expect((await refreshing).message).toMatch(/invalidated/);
+    expect(await auth.tokens()).toBeUndefined();
+    controller.abort();
+    await waiting;
+  });
+
+  test("own transports: another attempt's discovery can't reach a pending flow", async () => {
+    let launched!: (url: URL) => void;
+    const launch = new Promise<URL>((resolve) => (launched = resolve));
+    const auth = setup({ launch: (url) => launched(url) });
+    const transport = ownTransport(auth);
+    await expect(newClient().connect(transport)).rejects.toBeInstanceOf(
+      UnauthorizedError,
+    );
+    // What an overlapping pass on the shared owner saves before losing at state().
+    await auth.saveDiscoveryState!({
+      authorizationServerUrl: "https://other-as.example.com/",
+    });
+    await mock.authorize(await launch);
+    await auth.completeAuthorization(transport);
+    expect(await auth.tokens()).toBeDefined();
+  });
+
+  test("own transports: a failed flow stays pending until completeAuthorization() reports it", async () => {
+    const failure = new Error("no browser");
+    let fail = true;
+    const auth = setup({
+      launch: (url) => (fail ? Promise.reject(failure) : mock.authorize(url)),
+    });
+    const stale = ownTransport(auth);
+    await expect(newClient().connect(stale)).rejects.toBeInstanceOf(
+      UnauthorizedError,
+    );
+    await sleep(10); // the launcher has failed
+    fail = false;
+    const error = await newClient()
+      .connect(ownTransport(auth))
+      .catch((e) => e);
+    expect(error).not.toBeInstanceOf(UnauthorizedError);
+    expect(error.message).toMatch(/already in progress/);
+    await expect(auth.completeAuthorization(stale)).rejects.toBe(failure);
+    const fresh = ownTransport(auth);
+    await expect(newClient().connect(fresh)).rejects.toBeInstanceOf(
+      UnauthorizedError,
+    );
+    await auth.completeAuthorization(fresh);
+    expect(await auth.tokens()).toBeDefined();
+  });
+
   test("completeAuthorization() without a pending flow throws", async () => {
     const auth = setup();
     await expect(
@@ -637,7 +752,7 @@ describe("credentials", () => {
       const store = memory();
       const auth = setup({ store });
       const connecting = auth.connect(newClient()).catch((e) => e);
-      await sleep(100);
+      while (mock.registrations.length === 0) await sleep(10);
       await auth.invalidateCredentials!(scope);
       expect((await connecting).message).toMatch(/invalidated/);
       expect(await auth.clientInformation()).toBeUndefined();
@@ -671,8 +786,17 @@ describe("credentials", () => {
     expect(await auth.state!()).toBeString();
   });
 
+  test("a refresh can't save once the tokens it replaces were invalidated", async () => {
+    const auth = setup({ store: authorized() });
+    await auth.invalidateCredentials!("tokens");
+    await expect(
+      auth.saveTokens({ access_token: "late", token_type: "Bearer" }),
+    ).rejects.toThrow(/invalidated/);
+    expect(await auth.tokens()).toBeUndefined();
+  });
+
   test("concurrent client and token saves both persist", async () => {
-    const store = memory();
+    const store = authorized();
     const auth = setup({ store });
     await Promise.all([
       auth.saveClientInformation!({ client_id: "a", issuer: "https://as" }),
@@ -689,17 +813,8 @@ describe("credentials", () => {
   });
 
   test("a new registration replaces the slot and drops the old client's tokens", async () => {
-    const store = memory();
-    const auth = setup({ store });
-    await auth.saveClientInformation!({
-      client_id: "a",
-      issuer: "https://as1",
-    });
-    await auth.saveTokens({
-      access_token: "t",
-      token_type: "Bearer",
-      issuer: "https://as1",
-    });
+    const auth = setup({ store: authorized() });
+    expect(await auth.tokens()).toBeDefined();
     await auth.saveClientInformation!({
       client_id: "b",
       issuer: "https://as2",

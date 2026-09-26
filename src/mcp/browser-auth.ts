@@ -107,7 +107,7 @@ interface Owner {
   signal?: AbortSignal;
   /** Its `connect()` attempt failed: late SDK hooks must not start a flow or open a browser. */
   abandoned?: boolean;
-  /** Session generation when its current SDK auth pass began (see Session.#generation). */
+  /** Session generation when its current SDK auth pass began; guards registrations (see Session.#generation). */
   generation?: number;
 }
 
@@ -130,8 +130,10 @@ interface Flow {
   discovery?: OAuthDiscoveryState;
   failed: boolean;
   completing: boolean;
-  /** Session generation when the exchange started; independent of re-stampable owners. */
+  /** Session generation when completion started; independent of re-stampable owners. */
   generation?: number;
+  /** finishAuth() is running: token saves from the flow's owner are its exchange. */
+  exchanging?: boolean;
 }
 
 interface Config {
@@ -143,6 +145,8 @@ interface Config {
   timeout: number;
   pages: CallbackPages;
 }
+
+const INVALIDATED = "Credentials were invalidated during authorization";
 
 /**
  * Shared state behind the provider and the per-transport views `connect()` creates.
@@ -157,11 +161,14 @@ class Session {
   #savingClient = 0;
   #discovery?: OAuthDiscoveryState;
   /**
-   * Bumped by credential invalidation. Every SDK auth pass starts by reading
-   * clientInformation(), which stamps the owner; a registration, refresh or exchange that
-   * began before an invalidation can't save afterwards, so logout can't be undone.
-   * Transports you create share one owner, and a concurrent pass can re-stamp it, so a
-   * running exchange also carries its own stamp (Flow.generation).
+   * Bumped by credential invalidation, so work that began earlier can't undo a sign-out.
+   * The SDK gives hooks no attempt identity, and transports you create share one owner, so
+   * token saves don't rely on owners alone: a save from a flow's owner while its finishAuth()
+   * runs is the exchange and checks the stamp taken when completion started (Flow.generation);
+   * any other save is a refresh, which may only replace tokens still stored. (On your own
+   * transports a refresh that lands exactly during an exchange passes as that exchange.) A registration checks its owner's stamp, taken when its SDK pass read
+   * clientInformation(); on your own transports a concurrent pass can refresh that stamp,
+   * which at worst keeps a new client registration, never tokens.
    */
   #generation = 0;
 
@@ -187,10 +194,16 @@ class Session {
       },
       tokens: () => this.#tokens(),
       saveTokens: (tokens) => {
-        this.#checkGeneration(owner);
+        const flow = this.flow;
+        const exchange = flow?.exchanging && flow.owner === owner;
+        if (exchange && flow.generation !== this.#generation)
+          throw new Error(INVALIDATED);
         return credentials.update((c) => {
           const client = config.staticClient ?? c.client;
           if (!client) throw new Error("OAuth tokens without a client");
+          // A refresh replaces its client's stored tokens; after invalidation there are none.
+          if (!exchange && c.tokens?.client_id !== client.client_id)
+            throw new Error(INVALIDATED);
           return { ...c, tokens: { ...tokens, client_id: client.client_id } };
         });
       },
@@ -204,17 +217,15 @@ class Session {
         flow.verifier = verifier;
       },
       codeVerifier: () => {
-        const verifier = this.flow?.verifier;
+        const flow = this.flow;
+        const verifier = flow?.owner === owner ? flow.verifier : undefined;
         if (!verifier)
           throw new Error("No PKCE code verifier for this authorization");
         return verifier;
       },
-      // The owner of a flow reads and writes that flow's copy; everyone else the shared one.
-      saveDiscoveryState: (state) => {
-        const flow = this.flow;
-        if (flow?.owner === owner) flow.discovery = state;
-        else this.#discovery = state;
-      },
+      // A flow reads the snapshot taken when it was reserved; writes never touch it, since
+      // the SDK saves discovery before state() and an overlapping pass may share the owner.
+      saveDiscoveryState: (state) => void (this.#discovery = state),
       discoveryState: () => {
         const flow = this.flow;
         return flow?.owner === owner ? flow.discovery : this.#discovery;
@@ -228,10 +239,18 @@ class Session {
     return provider;
   }
 
-  /** A flow blocks others until it fails or expires, unless its token exchange is still running. */
+  /**
+   * A flow blocks others until it fails or expires, unless its token exchange is still
+   * running. A redirected flow on your own transports blocks until completeAuthorization()
+   * consumes it, even failed: their shared owner can't tell which transport started it, so
+   * a newer flow must not be completed on a stale transport.
+   */
   #active(): Flow | undefined {
     const flow = this.flow;
-    return flow && (flow.completing || !(flow.failed || flow.signal.aborted))
+    return flow &&
+      (flow.completing ||
+        !(flow.failed || flow.signal.aborted) ||
+        (flow.owner === this.external && flow.result))
       ? flow
       : undefined;
   }
@@ -351,6 +370,7 @@ class Session {
     try {
       const params = await raceSignal(flow.result!, combined);
       flow.owner.signal = combined;
+      flow.exchanging = true;
       try {
         // Code or error params: finishAuth verifies `iss` before trusting `error*`.
         await transport.finishAuth(params);
@@ -358,6 +378,7 @@ class Session {
         combined.throwIfAborted();
         throw error;
       } finally {
+        flow.exchanging = false;
         flow.owner.signal = undefined;
       }
       // A caller's transport can't be cancelled; report cancellation that won during its exchange.
@@ -407,7 +428,8 @@ class Session {
       throw new Error(
         "The connect() call that started this registration has ended",
       );
-    this.#checkGeneration(owner);
+    if ((owner.generation ?? 0) !== this.#generation)
+      throw new Error(INVALIDATED);
     // Client identity is pinned while a flow is active (see #redirect), and a save
     // pins out new flows until it is persisted, so no flow starts on the old client.
     if (this.#active())
@@ -429,15 +451,6 @@ class Session {
     } finally {
       this.#savingClient--;
     }
-  }
-
-  #checkGeneration(owner: Owner): void {
-    const flow = this.flow;
-    if (
-      (owner.generation ?? 0) !== this.#generation ||
-      (flow?.completing && flow.generation !== this.#generation)
-    )
-      throw new Error("Credentials were invalidated during authorization");
   }
 
   async #invalidate(

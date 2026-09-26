@@ -159,7 +159,7 @@ try {
 
 **Options:** `serverUrl`, `redirectUri` (fixed port; DCR registers it), `clientName` (for DCR) or `clientInformation` (pre-registered client with its `issuer`), `clientMetadata` (e.g. `{ scope }`), `store` (default: memory), `launch`, `timeout`, `successHtml`, `errorHtml`.
 
-**Custom transports:** pass `auth` as the transport's `authProvider`; on `UnauthorizedError`, call `await auth.completeAuthorization(transport)`, close that transport, and reconnect with a new one. Only the transport that started a flow gets `UnauthorizedError`; another one gets `An MCP authorization is already in progress`.
+**Custom transports:** pass `auth` as the transport's `authProvider`; on `UnauthorizedError`, call `await auth.completeAuthorization(transport)`, close that transport, and reconnect with a new one. Only the transport that started a flow gets `UnauthorizedError`; another one gets `An MCP authorization is already in progress`. Always call `completeAuthorization()` after that `UnauthorizedError`: the flow stays pending until it does, even if it failed.
 
 **Storage:** a `CredentialStore` is two methods over an opaque string, so a keychain store is four lines:
 

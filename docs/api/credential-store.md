@@ -116,6 +116,7 @@ const linear = browserAuth({
 ## Signing out
 
 ```ts
+await client.close(); // clearing credentials doesn't close a live connection
 await auth.invalidateCredentials("all"); // save(undefined)
 ```
 

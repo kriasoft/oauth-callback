@@ -51,7 +51,9 @@ export function parseRedirectUri(
   const href = typeof input === "string" ? input : input.href;
   const url = URL.canParse(href) ? new URL(href) : undefined;
   const fail = (reason: string) => {
-    throw new TypeError(`Invalid redirect URI "${href}": ${reason}`);
+    // Never echo userinfo: it may hold a secret.
+    const shown = href.replace(/\/\/[^/?#]*@/, "//");
+    throw new TypeError(`Invalid redirect URI "${shown}": ${reason}`);
   };
   if (!url) return fail("not a URL");
   if (url.protocol !== "http:") fail("must use http:");

@@ -261,6 +261,10 @@ describe("authorization URL validation", () => {
       await expect(getAuthCode(build, { redirectUri })).rejects.toThrow(
         TypeError,
       );
+    const error = await getAuthCode(build, {
+      redirectUri: "http://user:secret@127.0.0.1:0/cb",
+    }).catch((e) => e);
+    expect(error.message).not.toContain("secret");
   });
 });
 
