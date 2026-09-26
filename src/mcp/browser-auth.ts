@@ -345,24 +345,15 @@ class Session {
         throw new Error(
           "The OAuth client changed while authorization was starting",
         );
-      if (owner.abandoned)
-        throw new Error(
-          "The connect() call that started this authorization has ended",
-        );
-      flow.signal.throwIfAborted();
-
+      this.#checkLive(owner, flow);
       const listener = await listenForCallback(
         this.config.redirect.url,
         flow.state,
         this.config.pages,
       );
       flow.listener = listener;
-      // Cancellation may have landed while binding: never launch for a dead attempt.
-      if (owner.abandoned || owner.signal?.aborted)
-        throw new Error(
-          "The connect() call that started this authorization has ended",
-        );
-      flow.signal.throwIfAborted();
+      // Cancellation or sign-out may have landed while binding: never launch for a dead attempt.
+      this.#checkLive(owner, flow);
       void listener.callback.then(() => listener.close());
       // Launcher and callback race into one retained result; the SDK must get control back
       // now (it throws UnauthorizedError after this returns), so the launcher isn't awaited.
@@ -382,6 +373,17 @@ class Session {
     }
   }
 
+  /** Throws unless `flow` is still the live flow of a live attempt. */
+  #checkLive(owner: Owner, flow: Flow): void {
+    if (owner.abandoned || owner.signal?.aborted)
+      throw new Error(
+        "The connect() call that started this authorization has ended",
+      );
+    flow.signal.throwIfAborted();
+    // Ended while awaiting, e.g. by invalidateCredentials("all").
+    if (this.flow !== flow) throw new Error(INVALIDATED);
+  }
+
   /** Waiting phase, then the exchange on `transport`; ownership lasts until the exchange settles. */
   async complete(
     flow: Flow,
@@ -396,8 +398,11 @@ class Session {
       ? AbortSignal.any([signal, flow.signal])
       : flow.signal;
     try {
-      const params = await raceSignal(flow.result!, combined);
-      // Only an invalidation advances the generation while a flow waits: sign-out wins.
+      // Only an invalidation advances the generation while a flow waits: sign-out ends the wait.
+      const params = await raceSignal(
+        flow.result!,
+        AbortSignal.any([combined, this.invalidationSignal]),
+      );
       if (flow.generation !== this.#generation) throw new Error(INVALIDATED);
       // The new authorization supersedes OAuth work begun before it (e.g. a slow refresh
       // that would overwrite its tokens): abort it before the exchange's own requests start,

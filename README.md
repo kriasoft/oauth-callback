@@ -73,7 +73,7 @@ const { code, redirectUri } = await getAuthCode(
       method: "POST",
       body: new URLSearchParams({
         client_id,
-        redirect_uri: redirectUri.href,
+        redirect_uri: redirectUri,
         state,
         code_challenge,
         code_challenge_method: "S256",
@@ -184,7 +184,7 @@ Use one store per MCP server. To sign out, close the client, then clear the cred
 
 - **Node.js** 22+
 - **Bun** 1.2+
-- **Deno** 2: `--allow-net` (listener), `--allow-run` (default launcher), `--allow-read`/`--allow-write` (`fileStore`)
+- **Deno** 2: `--allow-net` (listener), `--allow-run` and `--allow-env` (default launcher), `--allow-read`/`--allow-write` (`fileStore`)
 
 These cover `getAuthCode()` and `fileStore()`, which CI smoke-tests on each minimum version. `browserAuth()` additionally depends on the runtime support of `@modelcontextprotocol/client`.
 

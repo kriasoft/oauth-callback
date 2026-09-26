@@ -13,7 +13,7 @@ const build = () => new URL(`${AUTHORIZE}?client_id=app`);
 describe("builder form", () => {
   test("binds 127.0.0.1 on an OS port and appends redirect_uri and state", async () => {
     let ctx:
-      { redirectUri: URL; state: string; signal: AbortSignal } | undefined;
+      { redirectUri: string; state: string; signal: AbortSignal } | undefined;
     let launched: URL | undefined;
     const result = await getAuthCode(
       (c) => {
@@ -28,18 +28,17 @@ describe("builder form", () => {
       },
     );
 
-    expect(ctx!.redirectUri.hostname).toBe("127.0.0.1");
-    expect(ctx!.redirectUri.port).not.toBe("0");
-    expect(ctx!.redirectUri.pathname).toBe("/callback");
+    const bound = new URL(ctx!.redirectUri);
+    expect(bound.hostname).toBe("127.0.0.1");
+    expect(bound.port).not.toBe("0");
+    expect(bound.pathname).toBe("/callback");
     expect(ctx!.state).toMatch(/^[\w-]{43}$/);
     expect(ctx!.signal).toBeInstanceOf(AbortSignal);
-    expect(launched!.searchParams.get("redirect_uri")).toBe(
-      ctx!.redirectUri.href,
-    );
+    expect(launched!.searchParams.get("redirect_uri")).toBe(ctx!.redirectUri);
     expect(launched!.searchParams.get("state")).toBe(ctx!.state);
     expect(launched!.searchParams.get("client_id")).toBe("app");
     expect(result.code).toBe("test-code");
-    expect(result.redirectUri).toBe(ctx!.redirectUri.href);
+    expect(result.redirectUri).toBe(ctx!.redirectUri);
     expect(result.params.get("state")).toBe(ctx!.state);
   });
 
@@ -47,7 +46,7 @@ describe("builder form", () => {
     const result = await getAuthCode(
       ({ redirectUri, state }) => {
         const url = build();
-        url.searchParams.set("redirect_uri", redirectUri.href);
+        url.searchParams.set("redirect_uri", redirectUri);
         url.searchParams.set("state", state);
         return url.href;
       },
@@ -64,7 +63,7 @@ describe("builder form", () => {
 
   test("does not append redirect_uri/state to a PAR request_uri", async () => {
     let launched: URL | undefined;
-    let redirect: URL | undefined;
+    let redirect: string | undefined;
     const result = getAuthCode(
       ({ redirectUri }) => {
         redirect = redirectUri;
@@ -81,6 +80,25 @@ describe("builder form", () => {
     expect(launched!.searchParams.has("state")).toBe(false);
     expect(launched!.searchParams.has("redirect_uri")).toBe(false);
     expect(redirect).toBeDefined();
+  });
+
+  test("PAR: the builder gets the exact redirect URI it gets back", async () => {
+    const port = await freePort();
+    const redirectUri = `http://LOCALHOST:${port}`; // canonical form: http://localhost:PORT/
+    let pushed: { redirectUri: string; state: string } | undefined;
+    const result = await getAuthCode(
+      (ctx) => {
+        pushed = ctx;
+        return `${AUTHORIZE}?client_id=app&request_uri=urn:example:par`;
+      },
+      {
+        redirectUri,
+        launch: () =>
+          void fetch(`${pushed!.redirectUri}?code=c&state=${pushed!.state}`),
+      },
+    );
+    expect(pushed!.redirectUri).toBe(redirectUri);
+    expect(result.redirectUri).toBe(redirectUri);
   });
 
   test("rejects a built URL with a different state or redirect_uri", async () => {

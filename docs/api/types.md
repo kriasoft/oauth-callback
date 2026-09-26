@@ -21,8 +21,8 @@ Builds the authorization URL once the loopback listener is bound. `redirect_uri`
 
 ```ts
 type AuthorizationUrlBuilder = (ctx: {
-  /** Bound redirect URI, e.g. `http://127.0.0.1:53124/callback`. */
-  redirectUri: URL;
+  /** Bound redirect URI, e.g. `http://127.0.0.1:53124/callback`: the exact value to send. */
+  redirectUri: string;
   /** 32 random bytes, base64url. */
   state: string;
   /** Aborted on timeout or cancellation; pass it to any `fetch` (e.g. PAR). */

@@ -18,8 +18,11 @@ import {
  * Required for PAR/JAR, where both must go into the pushed request.
  */
 export type AuthorizationUrlBuilder = (ctx: {
-  /** Bound redirect URI, e.g. `http://127.0.0.1:53124/callback`. */
-  redirectUri: URL;
+  /**
+   * Bound redirect URI, e.g. `http://127.0.0.1:53124/callback`: the exact value to send
+   * (appended when absent, returned as `redirectUri`), never re-serialized.
+   */
+  redirectUri: string;
   /** 32 random bytes, base64url. */
   state: string;
   /** Aborted on timeout or cancellation; pass it to any `fetch` (e.g. PAR). */
@@ -320,7 +323,7 @@ export async function getAuthCode(
       // Port 0 resolves to the bound port; otherwise the caller's exact string is kept.
       const boundHref =
         redirect.url.port === "0" ? listener.url.href : redirect.href;
-      const ctx = { redirectUri: new URL(listener.url), state, signal };
+      const ctx = { redirectUri: boundHref, state, signal };
       const built = await raceSignal(
         Promise.resolve().then(() => builder(ctx)),
         signal,

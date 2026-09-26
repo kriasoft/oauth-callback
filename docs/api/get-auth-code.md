@@ -16,7 +16,7 @@ function getAuthCode(
 ): Promise<AuthorizationCodeResult>;
 
 type AuthorizationUrlBuilder = (ctx: {
-  redirectUri: URL; // bound redirect URI, e.g. http://127.0.0.1:53124/callback
+  redirectUri: string; // bound redirect URI, exact value to send, e.g. http://127.0.0.1:53124/callback
   state: string; // 32 random bytes, base64url
   signal: AbortSignal; // aborted on timeout or cancellation
 }) => string | URL | Promise<string | URL>;
@@ -137,7 +137,7 @@ const { code, redirectUri } = await getAuthCode(
       body: new URLSearchParams({
         client_id: CLIENT_ID,
         response_type: "code",
-        redirect_uri: redirectUri.href,
+        redirect_uri: redirectUri,
         state,
         code_challenge,
         code_challenge_method: "S256",

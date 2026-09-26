@@ -663,6 +663,19 @@ describe("credentials", () => {
     );
   });
 
+  test("a failed load is retried, not cached", async () => {
+    const store = memory();
+    const load = store.load;
+    store.load = async () => {
+      store.load = load;
+      throw new Error("keychain locked");
+    };
+    const auth = setup({ store });
+    await expect(auth.tokens()).rejects.toThrow(/keychain locked/);
+    await auth.connect(newClient());
+    expect(await auth.tokens()).toBeDefined();
+  });
+
   test("a redirect URI change re-registers a DCR client", async () => {
     const store = memory();
     await setup({ store }).connect(newClient());
@@ -916,6 +929,42 @@ describe("credentials", () => {
       expect(await auth.clientInformation()).toBeUndefined();
       expect(store.value).toBeUndefined();
     });
+
+  test("sign-out while a redirect is being set up never launches", async () => {
+    let launched = false;
+    const auth = setup({
+      store: authorized(),
+      launch: () => void (launched = true),
+    });
+    const state = await auth.state!();
+    await auth.saveCodeVerifier("verifier");
+    const url = new URL("https://as.example.com/authorize");
+    url.searchParams.set("client_id", "a");
+    url.searchParams.set("redirect_uri", redirectUri);
+    url.searchParams.set("state", state);
+    const redirect = auth.redirectToAuthorization(url);
+    await auth.invalidateCredentials("all");
+    await expect(redirect).rejects.toThrow(/invalidated/);
+    await sleep(50);
+    expect(launched).toBe(false);
+    await expect(fetch(redirectUri)).rejects.toThrow(); // no orphan listener
+  });
+
+  test("sign-out ends a connect() waiting for the browser", async () => {
+    let respond = false;
+    const auth = setup({
+      launch: (url) => void (respond && mock.authorize(url)),
+    });
+    const connecting = auth.connect(newClient());
+    await sleep(100);
+    const started = Date.now();
+    await auth.invalidateCredentials("all");
+    await expect(connecting).rejects.toThrow(/invalidated/);
+    expect(Date.now() - started).toBeLessThan(1000);
+    await expect(fetch(redirectUri)).rejects.toThrow();
+    respond = true;
+    await auth.connect(newClient());
+  });
 
   test("invalidateCredentials('all') clears the store", async () => {
     const store = memory();

@@ -62,9 +62,13 @@ export class CredentialSlot {
   ) {}
 
   read(): Promise<Credentials> {
-    return (this.#loaded ??= this.store
-      .load()
-      .then((text) => this.#parse(text)));
+    if (this.#loaded) return this.#loaded;
+    const loading = this.store.load().then((text) => this.#parse(text));
+    // A failed load isn't cached: a locked keychain or a fixed file can succeed next time.
+    loading.catch(() => {
+      if (this.#loaded === loading) this.#loaded = undefined;
+    });
+    return (this.#loaded = loading);
   }
 
   /**
