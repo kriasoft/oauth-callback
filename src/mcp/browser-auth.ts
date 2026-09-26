@@ -17,6 +17,7 @@ import {
   type OAuthClientProvider,
   type OAuthDiscoveryState,
   type StoredOAuthClientInformation,
+  type StoredOAuthTokens,
   type StreamableHTTPClientTransportOptions,
 } from "@modelcontextprotocol/client";
 import {
@@ -26,21 +27,22 @@ import {
   generateState,
   launchUrl,
   raceSignal,
-} from "../get-auth-code";
-import { openBrowser } from "../launch";
+} from "../get-auth-code.js";
+import { openBrowser } from "../launch.js";
 import {
+  isLoopbackHost,
   listenForCallback,
   parseRedirectUri,
   sameUrl,
   type CallbackListener,
   type CallbackPages,
   type RedirectUri,
-} from "../loopback";
+} from "../loopback.js";
 import {
   CredentialSlot,
   memoryStore,
   type CredentialStore,
-} from "./credential-store";
+} from "./credential-store.js";
 
 export interface BrowserAuthOptions {
   /** The one MCP server this provider (and its store) serves. */
@@ -161,8 +163,13 @@ class Session {
       },
       state: () => this.#reserve(owner),
       clientInformation: () => this.#clientInformation(),
-      tokens: async () => (await credentials.read()).tokens,
-      saveTokens: (tokens) => credentials.update((c) => ({ ...c, tokens })),
+      tokens: () => this.#tokens(),
+      saveTokens: (tokens) =>
+        credentials.update((c) => {
+          const client = config.staticClient ?? c.client;
+          if (!client) throw new Error("OAuth tokens without a client");
+          return { ...c, tokens: { ...tokens, client_id: client.client_id } };
+        }),
       redirectToAuthorization: (url) => this.#redirect(owner, url),
       saveCodeVerifier: (verifier) => {
         // Bound to the flow its owner reserved: a late write from an abandoned attempt
@@ -199,16 +206,20 @@ class Session {
 
   // The SDK calls state() only on the interactive path, right before saving the verifier.
   #reserve(owner: Owner): string {
-    // UnauthorizedError, so a request that overlapped another request's flow (e.g. two
-    // concurrent 403 step-ups) takes the same "complete authorization, then retry" path.
     if (owner.abandoned)
       throw new Error(
         "The connect() call that started this authorization has ended",
       );
-    if (this.#active() || this.#savingClient)
-      throw new UnauthorizedError(
-        "An MCP authorization is already in progress",
-      );
+    if (this.#active() || this.#savingClient) {
+      const message = "An MCP authorization is already in progress";
+      // connect() knows each flow's transport, so an overlapped request (e.g. concurrent
+      // 403 step-ups) can take the "complete, then retry" path. Caller-created transports
+      // share one owner: UnauthorizedError would invite completing the flow on a transport
+      // that didn't start it.
+      throw owner === EXTERNAL
+        ? new Error(message)
+        : new UnauthorizedError(message);
+    }
     if (this.flow) this.end(this.flow);
     const timer = deadline(this.config.timeout);
     let markReady!: () => void;
@@ -334,6 +345,15 @@ class Session {
     return client;
   }
 
+  /** Stored tokens, only for the client they were issued to (e.g. not after a static client change). */
+  async #tokens(): Promise<StoredOAuthTokens | undefined> {
+    const { tokens } = await this.credentials.read();
+    if (!tokens) return undefined;
+    const { client_id, ...rest } = tokens;
+    const client = await this.#clientInformation();
+    return client?.client_id === client_id ? rest : undefined;
+  }
+
   async #saveClient(
     owner: Owner,
     client: StoredOAuthClientInformation,
@@ -350,10 +370,14 @@ class Session {
       );
     this.#savingClient++;
     try {
-      // Tokens belong to the client that obtained them.
-      await this.credentials.update((c) => ({
+      // Tokens belong to the client (and issuer) that obtained them.
+      await this.credentials.update(({ tokens }) => ({
         client,
-        tokens: c.client?.client_id === client.client_id ? c.tokens : undefined,
+        tokens:
+          tokens?.client_id === client.client_id &&
+          tokens.issuer === client.issuer
+            ? tokens
+            : undefined,
       }));
     } finally {
       this.#savingClient--;
@@ -381,12 +405,21 @@ function resolveConfig(options: BrowserAuthOptions): Config {
   if (!options || typeof options !== "object")
     throw new TypeError("browserAuth() needs options");
   const { clientName, clientInformation, launch = openBrowser } = options;
-  const serverUrl = URL.canParse(String(options.serverUrl))
-    ? new URL(options.serverUrl)
-    : undefined;
-  if (!serverUrl || !/^https?:$/.test(serverUrl.protocol))
+  // Bearer tokens travel to serverUrl: plaintext only to this machine.
+  const serverHref = String(options.serverUrl);
+  const serverUrl = URL.canParse(serverHref) ? new URL(serverHref) : undefined;
+  if (
+    !serverUrl ||
+    !(
+      serverUrl.protocol === "https:" ||
+      (serverUrl.protocol === "http:" && isLoopbackHost(serverUrl))
+    ) ||
+    serverUrl.username ||
+    serverUrl.password ||
+    serverHref.includes("#")
+  )
     throw new TypeError(
-      `serverUrl must be an http(s) URL, got "${options.serverUrl}"`,
+      `serverUrl must be an https: URL (http: only on a loopback host) without credentials or fragment, got "${serverHref}"`,
     );
   if (options.redirectUri === undefined)
     throw new TypeError(
@@ -538,8 +571,10 @@ export function browserAuth(options: BrowserAuthOptions): BrowserAuth {
           owner.signal = undefined; // the connection outlives this call's signal
           return;
         } catch (error) {
-          if (client.transport === transport)
-            await client.close().catch(() => {});
+          // client.connect() may have dropped the transport already; close it either way.
+          await (
+            client.transport === transport ? client.close() : transport.close()
+          ).catch(() => {});
           const flow = session.flow;
           const resumable =
             attempt === 0 &&

@@ -254,6 +254,8 @@ describe("authorization URL validation", () => {
       "http://127.0.0.1:0/cb#x",
       "http://u:p@127.0.0.1:0/cb",
       "http://127.0.0.1:0/cb?a=1&a=2",
+      "http://127.0.0.1:0/cb?state=fixed",
+      "http://127.0.0.1:0/cb?iss=x",
       "not a url",
     ])
       await expect(getAuthCode(build, { redirectUri })).rejects.toThrow(

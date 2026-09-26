@@ -44,7 +44,7 @@ Either way the final URL must be `https:` (or loopback `http:`), with no fragmen
 
 ¹ Builder form. In URL form the default is the URL's `redirect_uri`; the option is required when the URL has none, and must match it when both are given.
 
-`redirectUri` must be `http:` on `127.0.0.1`, `[::1]` or `localhost`, with no fragment, credentials or duplicate query keys. Port 0 (OS-assigned) is allowed only in builder form. `localhost` listens on `127.0.0.1`.
+`redirectUri` must be `http:` on `127.0.0.1`, `[::1]` or `localhost`, with no fragment, credentials, duplicate query keys, or callback parameters (`state`, `code`, `error`, `error_description`, `error_uri`, `iss`) in its query. Port 0 (OS-assigned) is allowed only in builder form. `localhost` listens on `127.0.0.1`.
 
 ## Returns
 
@@ -57,7 +57,7 @@ interface AuthorizationCodeResult {
 ```
 
 - **`code`**: the authorization code.
-- **`redirectUri`**: the exact redirect URI of this flow, never re-serialized. Send it verbatim as `redirect_uri` in the token request. In builder form with port 0 it contains the bound port.
+- **`redirectUri`**: the exact redirect URI of this flow, never re-serialized. When the authorization request carried `redirect_uri` (always in builder form), send it verbatim as `redirect_uri` in the token request. In builder form with port 0 it contains the bound port.
 - **`params`**: the full callback query (`state`, `iss`, `scope`, provider extensions).
 
 ## Throws

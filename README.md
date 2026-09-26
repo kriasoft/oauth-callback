@@ -24,6 +24,9 @@ Turn a browser authorization into a validated OAuth 2.0 authorization code on a 
 
 ```bash
 bun add oauth-callback   # or: npm install oauth-callback
+
+# for oauth-callback/mcp, also the MCP SDK (optional peer dependency)
+bun add @modelcontextprotocol/client
 ```
 
 ## Quick Start
@@ -97,7 +100,7 @@ await getAuthCode(build, {
 ```
 
 - **`launch`** receives the final URL. Use it for headless/SSH sessions, QR codes, webviews or tests. Its return value is ignored; if it throws or rejects, the flow fails with that error.
-- **`redirectUri`** must be `http:` on `127.0.0.1`, `[::1]` or `localhost`. It is returned exactly as sent; pass it verbatim to your token request.
+- **`redirectUri`** must be `http:` on `127.0.0.1`, `[::1]` or `localhost`, without `state`, `code`, `error*` or `iss` in its query. The result's `redirectUri` is returned exactly as sent: when the authorization request carried `redirect_uri` (always with a builder), pass it verbatim to your token request.
 - **Pages** never show callback data. `successHtml`/`errorHtml` are served as-is.
 
 ### Errors
@@ -124,14 +127,16 @@ Invalid options and unsafe authorization URLs (`javascript:`, remote `http:`, `r
 ## MCP SDK
 
 ```ts
-import { Client } from "@modelcontextprotocol/client";
+import { Client, UnauthorizedError } from "@modelcontextprotocol/client";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { browserAuth, fileStore } from "oauth-callback/mcp";
 
 const auth = browserAuth({
   serverUrl: "https://mcp.notion.com/mcp",
   redirectUri: "http://127.0.0.1:8765/callback",
   clientName: "Acme CLI",
-  store: fileStore(path.join(os.homedir(), ".config/acme/notion.json")),
+  store: fileStore(join(homedir(), ".config/acme/notion.json")),
 });
 
 const client = new Client({ name: "acme", version: "1.0.0" });
@@ -154,7 +159,7 @@ try {
 
 **Options:** `serverUrl`, `redirectUri` (fixed port; DCR registers it), `clientName` (for DCR) or `clientInformation` (pre-registered client with its `issuer`), `clientMetadata` (e.g. `{ scope }`), `store` (default: memory), `launch`, `timeout`, `successHtml`, `errorHtml`.
 
-**Custom transports:** pass `auth` as the transport's `authProvider`; on `UnauthorizedError`, call `await auth.completeAuthorization(transport)` and reconnect with a new transport.
+**Custom transports:** pass `auth` as the transport's `authProvider`; on `UnauthorizedError`, call `await auth.completeAuthorization(transport)` and reconnect with a new transport. Only the transport that started a flow gets `UnauthorizedError`; another one gets `An MCP authorization is already in progress`.
 
 **Storage:** a `CredentialStore` is two methods over an opaque string, so a keychain store is four lines:
 

@@ -63,7 +63,7 @@ const { code, redirectUri } = await getAuthCode(() => {
 
 ### 3. Exchange the code
 
-Send `redirectUri` verbatim in the token request: it is exactly the value the authorization request carried.
+Send `redirectUri` verbatim in the token request: with a builder it is exactly the value the authorization request carried.
 
 ```ts
 const response = await fetch("https://github.com/login/oauth/access_token", {

@@ -2,14 +2,14 @@
 /* SPDX-License-Identifier: MIT */
 
 import { randomBytes } from "node:crypto";
-import { openBrowser } from "./launch";
+import { openBrowser } from "./launch.js";
 import {
   isLoopbackHost,
   listenForCallback,
   parseRedirectUri,
   sameUrl,
   type RedirectUri,
-} from "./loopback";
+} from "./loopback.js";
 
 /**
  * Builds the authorization URL once the loopback listener is bound (ADR-007).

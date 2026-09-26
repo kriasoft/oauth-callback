@@ -21,18 +21,18 @@ Requires `@modelcontextprotocol/client` 2.1+.
 
 ## Options
 
-| Option              | Type                                                | Default        | Description                                                                             |
-| ------------------- | --------------------------------------------------- | -------------- | --------------------------------------------------------------------------------------- |
-| `serverUrl`         | `string \| URL`                                     | required       | The one MCP server this provider and its store serve (`http:`/`https:`)                 |
-| `redirectUri`       | `string \| URL`                                     | required       | Fixed loopback redirect URI, e.g. `http://127.0.0.1:8765/callback`. No port 0           |
-| `clientName`        | `string`                                            | —              | Client name for Dynamic Client Registration. Required unless `clientInformation` is set |
-| `clientInformation` | `StoredOAuthClientInformation & { issuer: string }` | —              | Pre-registered client; disables DCR                                                     |
-| `clientMetadata`    | `Partial<OAuthClientMetadata>`                      | —              | Extra DCR metadata, e.g. `scope` or `grant_types`                                       |
-| `store`             | `CredentialStore`                                   | memory         | Credential persistence                                                                  |
-| `launch`            | `(url: URL) => unknown`                             | system browser | Opens the URL. Fulfillment is ignored; a throw or rejection fails the flow              |
-| `timeout`           | `number`                                            | `300000`       | Milliseconds for one authorization, through token exchange; integer in [1, 2³¹−1]       |
-| `successHtml`       | `string`                                            | neutral page   | Static HTML after a successful callback                                                 |
-| `errorHtml`         | `string`                                            | neutral page   | Static HTML after an error callback                                                     |
+| Option              | Type                                                | Default        | Description                                                                                    |
+| ------------------- | --------------------------------------------------- | -------------- | ---------------------------------------------------------------------------------------------- |
+| `serverUrl`         | `string \| URL`                                     | required       | The one MCP server this provider and its store serve (`https:`, or `http:` on a loopback host) |
+| `redirectUri`       | `string \| URL`                                     | required       | Fixed loopback redirect URI, e.g. `http://127.0.0.1:8765/callback`. No port 0                  |
+| `clientName`        | `string`                                            | —              | Client name for Dynamic Client Registration. Required unless `clientInformation` is set        |
+| `clientInformation` | `StoredOAuthClientInformation & { issuer: string }` | —              | Pre-registered client; disables DCR                                                            |
+| `clientMetadata`    | `Partial<OAuthClientMetadata>`                      | —              | Extra DCR metadata, e.g. `scope` or `grant_types`                                              |
+| `store`             | `CredentialStore`                                   | memory         | Credential persistence                                                                         |
+| `launch`            | `(url: URL) => unknown`                             | system browser | Opens the URL. Fulfillment is ignored; a throw or rejection fails the flow                     |
+| `timeout`           | `number`                                            | `300000`       | Milliseconds for one authorization, through token exchange; integer in [1, 2³¹−1]              |
+| `successHtml`       | `string`                                            | neutral page   | Static HTML after a successful callback                                                        |
+| `errorHtml`         | `string`                                            | neutral page   | Static HTML after an error callback                                                            |
 
 Notes:
 
@@ -176,7 +176,7 @@ await auth.invalidateCredentials("all");
 
 ## Behavior
 
-- **One flow at a time.** A provider runs one interactive authorization at a time, from the SDK's `state()` call until the token exchange settles. Overlapping attempts fail fast with `UnauthorizedError`; they are never merged.
+- **One flow at a time.** A provider runs one interactive authorization at a time, from the SDK's `state()` call until the token exchange settles. Overlapping attempts fail fast and are never merged: with `UnauthorizedError` on transports `connect()` created (so `connect()` can complete the flow, then retry), with a plain `Error` on transports you created (only the transport that started a flow may complete it).
 - **Timeout.** `timeout` bounds one authorization, including the token exchange. On transports created by `connect()`, a hung token endpoint is aborted too.
 - **Client identity.** While a flow is active, registration can't replace the client. A stored DCR client registered for a different redirect URI is re-registered.
 - **Callbacks.** Same validation, pages and security headers as [`getAuthCode()`](/core-concepts#state-and-callback-validation). Error callbacks go to the SDK, which checks `iss` before trusting them.

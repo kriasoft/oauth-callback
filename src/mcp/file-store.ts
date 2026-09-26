@@ -4,12 +4,13 @@
 import { randomBytes } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute } from "node:path";
-import type { CredentialStore } from "./credential-store";
+import type { CredentialStore } from "./credential-store.js";
 
 /**
- * Stores credentials as a file readable only by the current user (0600, directory 0700).
- * Writes are atomic (temp file + rename) and queued per instance. For production, prefer
- * the OS keychain via a custom {@link CredentialStore}.
+ * Stores credentials in a file; on POSIX it is readable only by the current user (0600,
+ * directory 0700). Writes are atomic (temp file + rename) and queued per instance, with no
+ * cross-process locking: give each process or provider its own file. For production,
+ * prefer the OS keychain via a custom {@link CredentialStore}.
  *
  * @param path Absolute path; `~` is not expanded. Use `path.join(os.homedir(), …)`.
  */

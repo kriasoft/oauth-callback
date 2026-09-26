@@ -7,7 +7,7 @@ description: How OAuth Callback handles redirect URIs, state, callback validatio
 
 ## The redirect URI
 
-The redirect URI is the one address option. It must be `http:` on `127.0.0.1`, `[::1]` or `localhost`, with no fragment, credentials or duplicate query keys. The library listens on it, and the authorization request must carry the same value.
+The redirect URI is the one address option. It must be `http:` on `127.0.0.1`, `[::1]` or `localhost`, with no fragment, credentials, duplicate query keys, or callback parameters (`state`, `code`, `error`, `error_description`, `error_uri`, `iss`) in its query. The library listens on it, and the authorization request must carry the same value.
 
 `getAuthCode()` accepts the authorization request in two forms:
 
@@ -54,7 +54,7 @@ const { code, redirectUri } = await getAuthCode(
 
 **`localhost`.** Accepted, never generated ([RFC 8252 §8.3](https://www.rfc-editor.org/rfc/rfc8252.html#section-8.3)). A `localhost` redirect URI listens on `127.0.0.1`.
 
-The result's `redirectUri` is the exact string the authorization request carried, never re-serialized. Send it verbatim in the token request ([RFC 6749 §4.1.3](https://www.rfc-editor.org/rfc/rfc6749.html#section-4.1.3)).
+The result's `redirectUri` is the exact redirect URI of the flow, never re-serialized. When the authorization request carried `redirect_uri` (always with a builder), send it verbatim in the token request ([RFC 6749 §4.1.3](https://www.rfc-editor.org/rfc/rfc6749.html#section-4.1.3)). A prebuilt URL without `redirect_uri` relies on the provider's registered URI; follow the provider's rules for the token request.
 
 ## State and callback validation
 
@@ -153,7 +153,7 @@ sequenceDiagram
 Key rules:
 
 - **Fixed redirect URI.** `redirectUri` is required and can't use port 0: Dynamic Client Registration registers it.
-- **One flow at a time.** A provider runs one interactive authorization at a time, from `state()` until its token exchange settles. Overlapping attempts fail fast with `UnauthorizedError` instead of merging.
+- **One flow at a time.** A provider runs one interactive authorization at a time, from `state()` until its token exchange settles. Overlapping attempts fail fast instead of merging: `UnauthorizedError` on transports `connect()` created, a plain `Error` on your own transports, where only the originating transport may complete a flow.
 - **Same transport.** A flow completes on the transport that received the 401/403, which holds the scope and resource metadata the exchange needs.
 - **`timeout`** bounds one flow, through the token exchange.
 
@@ -164,7 +164,7 @@ Key rules:
 A `CredentialStore` persists one opaque string: `load()` and `save(text)`. The adapter owns the format (`{ version: 1, serverUrl, client?, tokens? }`), so a custom store never deals with OAuth records.
 
 - **Default:** memory, for the process lifetime.
-- **`fileStore(path)`:** an absolute path, written atomically with 0600 permissions.
+- **`fileStore(path)`:** an absolute path, written atomically, with 0600 permissions on POSIX. No cross-process locking: one file per process.
 - **Custom:** e.g. the OS keychain.
 
 Use one store per MCP server: tokens are audience-bound ([RFC 8707](https://www.rfc-editor.org/rfc/rfc8707.html)), and a store holding another server's credentials throws. The PKCE verifier, `state` and discovery state stay in memory. See [CredentialStore](/api/credential-store).

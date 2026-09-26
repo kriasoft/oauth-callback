@@ -56,7 +56,7 @@ interface GetAuthCodeOptions {
 ```ts
 interface AuthorizationCodeResult {
   code: string;
-  /** Exact redirect URI of this flow; send it verbatim in the token request. */
+  /** Exact redirect URI of this flow; send it verbatim in the token request if the authorization request carried it. */
   redirectUri: string;
   /** Full callback query (`state`, `iss`, `scope`, extensions, …). */
   params: URLSearchParams;

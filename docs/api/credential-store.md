@@ -20,7 +20,7 @@ interface CredentialStore {
 }
 ```
 
-The adapter owns the format: a JSON document `{ version: 1, serverUrl, client?, tokens? }` holding the MCP SDK's client information and tokens verbatim. A store never parses it. When both client and tokens are cleared, the adapter calls `save(undefined)`.
+The adapter owns the format: a JSON document `{ version: 1, serverUrl, client?, tokens? }` holding the MCP SDK's client information and tokens (stamped with the `client_id` they were issued to). A store never parses it. When both client and tokens are cleared, the adapter calls `save(undefined)`.
 
 The adapter reads the store once, then keeps a cached copy and serializes its writes.
 
@@ -45,11 +45,11 @@ const auth = browserAuth({ serverUrl, redirectUri, clientName: "Acme CLI" });
 function fileStore(path: string): CredentialStore;
 ```
 
-Stores the document in a file readable only by the current user.
+Stores the document in a file; on POSIX systems it is readable only by the current user.
 
 - `path` must be absolute. `~` is not expanded; use `os.homedir()`.
 - The file is created with mode `0600` and missing directories with `0700`.
-- Writes are atomic (temp file + rename) and queued per instance.
+- Writes are atomic (temp file + rename) and queued per instance. There is no cross-process locking: don't share one file between processes or providers.
 - `save(undefined)` deletes the file.
 
 ```ts

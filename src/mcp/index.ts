@@ -10,6 +10,6 @@ export {
   browserAuth,
   type BrowserAuth,
   type BrowserAuthOptions,
-} from "./browser-auth";
-export type { CredentialStore } from "./credential-store";
-export { fileStore } from "./file-store";
+} from "./browser-auth.js";
+export type { CredentialStore } from "./credential-store.js";
+export { fileStore } from "./file-store.js";

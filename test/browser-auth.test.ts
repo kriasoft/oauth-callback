@@ -332,7 +332,7 @@ describe("flow ownership", () => {
   test("a second state() while a flow is active is rejected", async () => {
     const auth = setup();
     await auth.state!();
-    expect(() => auth.state!()).toThrow(UnauthorizedError);
+    expect(() => auth.state!()).toThrow(/already in progress/);
   });
 
   test("a new flow can't start while an exchange is running", async () => {
@@ -402,30 +402,29 @@ describe("flow ownership", () => {
     ).rejects.toThrow(/No MCP authorization/);
   });
 
-  test("concurrent unregistered 401s: at most one flow, never with the other's client", async () => {
-    const auth = setup();
-    const transports = [0, 1].map(
+  test("a second custom transport can't join a flow it didn't start", async () => {
+    let launched!: (url: URL) => void;
+    const launch = new Promise<URL>((resolve) => (launched = resolve));
+    const auth = setup({ launch: (url) => launched(url) });
+    const [a, b] = [0, 1].map(
       () =>
         new StreamableHTTPClientTransport(new URL(mock.mcpUrl), {
           authProvider: auth,
         }),
     );
-    const results = await Promise.allSettled(
-      transports.map((t) => newClient().connect(t)),
-    );
-    const redirected = results.flatMap((r, i) =>
-      r.status === "rejected" &&
-      r.reason instanceof UnauthorizedError &&
-      auth.state
-        ? [i]
-        : [],
-    );
-    expect(mock.authorizeRequests).toHaveLength(1);
-    const clientId = mock.authorizeRequests[0]!.searchParams.get("client_id");
-    expect(clientId).toBe(
-      ((await auth.clientInformation()) as { client_id: string }).client_id,
-    );
-    await auth.completeAuthorization(transports[redirected.at(-1)!]!);
+    const first = newClient()
+      .connect(a!)
+      .catch((e) => e);
+    const url = await launch;
+    const error = await newClient()
+      .connect(b!)
+      .catch((e) => e);
+    expect(error).not.toBeInstanceOf(UnauthorizedError);
+    expect(error.message).toMatch(/already in progress/);
+    expect(await first).toBeInstanceOf(UnauthorizedError);
+    await mock.authorize(url);
+    await auth.completeAuthorization(a!);
+    const clientId = (await auth.clientInformation())!.client_id;
     expect(mock.tokenRequests.at(-1)!.get("client_id")).toBe(clientId);
   });
 });
@@ -491,7 +490,7 @@ describe("credentials", () => {
       issuer: "https://as",
     });
     await sleep(0);
-    expect(() => auth.state!()).toThrow(UnauthorizedError);
+    expect(() => auth.state!()).toThrow(/already in progress/);
     release();
     await saving;
     expect(await auth.state!()).toBeString();
@@ -567,6 +566,18 @@ describe("static client", () => {
     expect(mock.registrations).toHaveLength(0);
   });
 
+  test("stored tokens are never handed to a different static client", async () => {
+    const store = memory();
+    await setup({ store, clientInformation: staticClient(mock.base) }).connect(
+      newClient(),
+    );
+    const other = setup({
+      store,
+      clientInformation: { ...staticClient(mock.base), client_id: "other" },
+    });
+    expect(await other.tokens()).toBeUndefined();
+  });
+
   test("survives invalidateCredentials('all')", async () => {
     const auth = setup({ clientInformation: staticClient(mock.base) });
     await auth.invalidateCredentials!("all");
@@ -586,6 +597,9 @@ describe("options", () => {
     expect(() => browserAuth(valid)).not.toThrow();
     for (const invalid of [
       { ...valid, serverUrl: "ftp://x" },
+      { ...valid, serverUrl: "http://mcp.example.com/mcp" },
+      { ...valid, serverUrl: "https://u:p@mcp.example.com/mcp" },
+      { ...valid, serverUrl: "https://mcp.example.com/mcp#x" },
       { ...valid, redirectUri: undefined },
       { ...valid, redirectUri: "http://127.0.0.1:0/cb" },
       { ...valid, redirectUri: "https://127.0.0.1:1/cb" },

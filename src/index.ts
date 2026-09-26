@@ -12,4 +12,4 @@ export {
   type AuthorizationCodeResult,
   type AuthorizationUrlBuilder,
   type GetAuthCodeOptions,
-} from "./get-auth-code";
+} from "./get-auth-code.js";

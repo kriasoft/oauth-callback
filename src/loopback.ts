@@ -53,6 +53,9 @@ export function parseRedirectUri(
     );
   const keys = [...url.searchParams.keys()];
   if (new Set(keys).size !== keys.length) fail("duplicate query parameters");
+  // The authorization server appends these; a preset one makes every callback ambiguous.
+  const reserved = keys.find((key) => CALLBACK_PARAMS.includes(key));
+  if (reserved) fail(`"${reserved}" is set by the authorization server`);
   return { href, url };
 }
 
@@ -87,8 +90,9 @@ const SECURITY_HEADERS = {
 const REJECTED =
   "This callback does not match a pending authorization request. You can close this tab.";
 
-// Parameters that must be unambiguous: they decide the outcome or populate OAuthCallbackError.
-const SINGLE_VALUED = [
+// Callback parameters: they decide the outcome or populate OAuthCallbackError, so each must
+// be unambiguous, and a redirect URI can't preset them.
+const CALLBACK_PARAMS = [
   "state",
   "code",
   "error",
@@ -110,7 +114,8 @@ function isValidCallback(url: URL, expected: URL, state: string): boolean {
     const values = params.getAll(key);
     if (values.length !== 1 || values[0] !== value) return false;
   }
-  if (SINGLE_VALUED.some((key) => params.getAll(key).length > 1)) return false;
+  if (CALLBACK_PARAMS.some((key) => params.getAll(key).length > 1))
+    return false;
   if (params.get("state") !== state) return false;
   return (
     params.has("code") !== params.has("error") &&

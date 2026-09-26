@@ -24,12 +24,15 @@ export interface CredentialStore {
   save(value: string | undefined): Promise<void>;
 }
 
+/** Tokens stamped with the `client_id` they were issued to; never handed to another client. */
+export type BoundTokens = StoredOAuthTokens & { client_id: string };
+
 /** Stored document. Bound to one MCP server: tokens are audience-bound (RFC 8707). */
 interface CredentialDocument {
   version: 1;
   serverUrl: string;
   client?: StoredOAuthClientInformation;
-  tokens?: StoredOAuthTokens;
+  tokens?: BoundTokens;
 }
 
 export type Credentials = Pick<CredentialDocument, "client" | "tokens">;
@@ -108,7 +111,11 @@ export class CredentialSlot {
       throw new Error("Stored MCP client information is invalid");
     if (
       tokens !== undefined &&
-      !(isObject(tokens) && typeof tokens.access_token === "string")
+      !(
+        isObject(tokens) &&
+        typeof tokens.access_token === "string" &&
+        typeof tokens.client_id === "string"
+      )
     )
       throw new Error("Stored MCP tokens are invalid");
     return { client, tokens } as Credentials;
