@@ -1,665 +1,164 @@
 ---
 title: TypeScript Types
-description: Complete reference for all TypeScript types, interfaces, and type definitions in the oauth-callback library.
+description: Reference for the TypeScript types exported by oauth-callback and oauth-callback/mcp.
 ---
 
 # TypeScript Types
 
-OAuth Callback is fully typed with TypeScript, providing comprehensive type safety and excellent IDE support. This page documents all exported types and interfaces available in the library.
+## `oauth-callback`
 
-## Type Organization
-
-```mermaid
-flowchart TB
-    subgraph "Core Types"
-        GetAuthCodeOptions
-        CallbackResult
-        ServerOptions
-        CallbackServer
-    end
-
-    subgraph "Error Types"
-        OAuthError
-        TimeoutError
-    end
-
-    subgraph "Storage Types"
-        TokenStore
-        OAuthStore
-        Tokens
-        ClientInfo
-    end
-
-    subgraph "MCP Types"
-        BrowserAuthOptions
-        OAuthClientProvider["OAuthClientProvider (MCP SDK)"]
-    end
-
-    GetAuthCodeOptions --> CallbackResult
-    ServerOptions --> CallbackServer
-    BrowserAuthOptions --> TokenStore
-    BrowserAuthOptions --> OAuthStore
-    OAuthStore --> Tokens
-    OAuthStore --> ClientInfo
+```ts
+import type {
+  AuthorizationCodeResult,
+  AuthorizationUrlBuilder,
+  GetAuthCodeOptions,
+} from "oauth-callback";
 ```
 
-## Core Types
+### AuthorizationUrlBuilder
+
+Builds the authorization URL once the loopback listener is bound. `redirect_uri` and `state` are appended when absent; if present they must match.
+
+```ts
+type AuthorizationUrlBuilder = (ctx: {
+  /** Bound redirect URI, e.g. `http://127.0.0.1:53124/callback`. */
+  redirectUri: URL;
+  /** 32 random bytes, base64url. */
+  state: string;
+  /** Aborted on timeout or cancellation; pass it to any `fetch` (e.g. PAR). */
+  signal: AbortSignal;
+}) => string | URL | Promise<string | URL>;
+```
 
 ### GetAuthCodeOptions
 
-Configuration options for the `getAuthCode` function.
-
-```typescript
+```ts
 interface GetAuthCodeOptions {
-  authorizationUrl: string; // OAuth authorization URL
-  port?: number; // Server port (default: 3000)
-  hostname?: string; // Hostname (default: "localhost")
-  callbackPath?: string; // Callback path (default: "/callback")
-  timeout?: number; // Timeout in ms (default: 30000)
-  launch: boolean | ((authorizationUrl: string) => unknown); // true: system browser, false: caller shows URL
-  successHtml?: string; // Custom success HTML
-  errorHtml?: string; // Custom error HTML template
-  signal?: AbortSignal; // Cancellation signal
-  onRequest?: (req: Request) => void; // Request callback
+  /**
+   * Loopback redirect URI to listen on. Builder form: defaults to `http://127.0.0.1:0/callback`
+   * (port 0 = OS-assigned). URL form: taken from the URL's `redirect_uri`; required when absent.
+   */
+  redirectUri?: string | URL;
+  /** Opens the final authorization URL. Default: system browser. Only a rejection (or throw) fails the flow. */
+  launch?: (url: URL) => unknown;
+  /** Milliseconds for the whole attempt; integer in [1, 2_147_483_647]. Default 300_000. */
+  timeout?: number;
+  signal?: AbortSignal;
+  /** Static HTML served after a successful callback. */
+  successHtml?: string;
+  /** Static HTML served after an error callback. */
+  errorHtml?: string;
 }
 ```
 
-#### Usage Example
+### AuthorizationCodeResult
 
-```typescript
-import type { GetAuthCodeOptions } from "oauth-callback";
-
-const options: GetAuthCodeOptions = {
-  authorizationUrl: "https://oauth.example.com/authorize?...",
-  launch: true,
-  port: 8080,
-  timeout: 60000,
-  successHtml: "<h1>Success!</h1>",
-  errorHtml: "<h1>Error: {{error_description}}</h1>",
-  onRequest: (req) => console.log(`Request: ${new URL(req.url).pathname}`),
-};
-
-const result = await getAuthCode(options);
-```
-
-### CallbackResult
-
-Result object returned from OAuth callback containing authorization code or error details.
-
-```typescript
-interface CallbackResult {
-  code?: string; // Authorization code
-  state?: string; // State parameter for CSRF
-  error?: string; // OAuth error code
-  error_description?: string; // Error description
-  error_uri?: string; // Error info URI
-  [key: string]: string | undefined; // Additional params
+```ts
+interface AuthorizationCodeResult {
+  code: string;
+  /** Exact redirect URI of this flow; send it verbatim in the token request if the authorization request carried it. */
+  redirectUri: string;
+  /** Full callback query (`state`, `iss`, `scope`, extensions, …). */
+  params: URLSearchParams;
 }
 ```
 
-#### Usage Example
+### OAuthCallbackError
 
-```typescript
-import type { CallbackResult } from "oauth-callback";
+A class, exported as a value. See [OAuthCallbackError](/api/oauth-callback-error).
 
-function handleCallback(result: CallbackResult) {
-  if (result.error) {
-    console.error(`OAuth error: ${result.error}`);
-    if (result.error_description) {
-      console.error(`Details: ${result.error_description}`);
-    }
-    return;
-  }
-
-  if (result.code) {
-    console.log(`Authorization code: ${result.code}`);
-
-    // Validate state for CSRF protection
-    if (result.state !== expectedState) {
-      throw new Error("State mismatch - possible CSRF attack");
-    }
-
-    // Exchange code for tokens
-    exchangeCodeForTokens(result.code);
-  }
+```ts
+class OAuthCallbackError extends Error {
+  readonly name: "OAuthCallbackError";
+  readonly error: string;
+  readonly description?: string;
+  readonly uri?: string;
+  readonly params: URLSearchParams;
 }
 ```
 
-### ServerOptions
+Timeouts reject with a `DOMException` whose `name` is `"TimeoutError"`; there is no separate timeout class.
 
-Configuration options for the OAuth callback server.
+## `oauth-callback/mcp`
 
-```typescript
-interface ServerOptions {
-  port: number; // Port to bind to
-  hostname?: string; // Hostname (default: "localhost")
-  successHtml?: string; // Custom success HTML
-  errorHtml?: string; // Error HTML template
-  signal?: AbortSignal; // Cancellation signal
-  onRequest?: (req: Request) => void; // Request callback
-}
-```
-
-#### Usage Example
-
-```typescript
-import type { ServerOptions } from "oauth-callback";
-
-const serverOptions: ServerOptions = {
-  port: 3000,
-  hostname: "127.0.0.1",
-  successHtml: `
-    <html>
-      <body>
-        <h1>Authorization successful!</h1>
-        <script>window.close()</script>
-      </body>
-    </html>
-  `,
-  onRequest: (req) => {
-    const url = new URL(req.url);
-    console.log(`[${req.method}] ${url.pathname}`);
-  },
-};
-```
-
-### CallbackServer
-
-Interface for OAuth callback server implementations across different runtimes.
-
-```typescript
-interface CallbackServer {
-  start(options: ServerOptions): Promise<void>;
-  waitForCallback(path: string, timeout: number): Promise<CallbackResult>;
-  stop(): Promise<void>;
-}
-```
-
-#### Implementation Example
-
-```typescript
+```ts
 import type {
-  CallbackServer,
-  ServerOptions,
-  CallbackResult,
-} from "oauth-callback";
-
-class CustomCallbackServer implements CallbackServer {
-  private server?: HttpServer;
-
-  async start(options: ServerOptions): Promise<void> {
-    // Start HTTP server
-    this.server = await createServer(options);
-  }
-
-  async waitForCallback(
-    path: string,
-    timeout: number,
-  ): Promise<CallbackResult> {
-    // Wait for OAuth callback
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        reject(new Error("Timeout waiting for callback"));
-      }, timeout);
-
-      this.server.on("request", (req) => {
-        if (req.url.startsWith(path)) {
-          clearTimeout(timer);
-          const params = parseQueryParams(req.url);
-          resolve(params);
-        }
-      });
-    });
-  }
-
-  async stop(): Promise<void> {
-    // Stop server
-    await this.server?.close();
-  }
-}
-```
-
-## Storage Types
-
-### TokenStore
-
-Basic interface for OAuth token storage.
-
-```typescript
-interface TokenStore {
-  get(key: string): Promise<Tokens | null>;
-  set(key: string, tokens: Tokens): Promise<void>;
-  delete(key: string): Promise<void>;
-}
-```
-
-### Tokens
-
-OAuth token data structure.
-
-```typescript
-interface Tokens {
-  accessToken: string; // OAuth access token
-  refreshToken?: string; // Optional refresh token
-  expiresAt?: number; // Absolute expiry (Unix ms)
-  scope?: string; // Space-delimited scopes
-}
-```
-
-#### Usage Example
-
-```typescript
-import type { Tokens, TokenStore } from "oauth-callback/mcp";
-
-class CustomTokenStore implements TokenStore {
-  private storage = new Map<string, Tokens>();
-
-  async get(key: string): Promise<Tokens | null> {
-    return this.storage.get(key) ?? null;
-  }
-
-  async set(key: string, tokens: Tokens): Promise<void> {
-    // Check if token is expired
-    if (tokens.expiresAt && Date.now() >= tokens.expiresAt) {
-      console.warn("Storing expired token");
-    }
-    this.storage.set(key, tokens);
-  }
-
-  async delete(key: string): Promise<void> {
-    this.storage.delete(key);
-  }
-}
-```
-
-### OAuthStore
-
-Extended storage interface with Dynamic Client Registration and PKCE verifier persistence.
-
-```typescript
-import { OAuthStoreBrand } from "oauth-callback/mcp";
-
-interface OAuthStore extends TokenStore {
-  readonly [OAuthStoreBrand]: true; // Required brand for type detection
-
-  getClient(key: string): Promise<ClientInfo | null>;
-  setClient(key: string, client: ClientInfo): Promise<void>;
-  deleteClient(key: string): Promise<void>;
-
-  getCodeVerifier(key: string): Promise<string | null>;
-  setCodeVerifier(key: string, verifier: string): Promise<void>;
-  deleteCodeVerifier(key: string): Promise<void>;
-}
-```
-
-### ClientInfo
-
-Dynamic client registration data.
-
-```typescript
-interface ClientInfo {
-  clientId: string; // OAuth client ID
-  clientSecret?: string; // Client secret
-  clientIdIssuedAt?: number; // Registration time
-  clientSecretExpiresAt?: number; // Secret expiry
-}
-```
-
-#### Complete Storage Example
-
-```typescript
-import {
-  OAuthStoreBrand,
-  type OAuthStore,
-  type Tokens,
-  type ClientInfo,
+  BrowserAuth,
+  BrowserAuthOptions,
+  CredentialStore,
 } from "oauth-callback/mcp";
-
-class DatabaseOAuthStore implements OAuthStore {
-  readonly [OAuthStoreBrand] = true as const;
-
-  constructor(private db: Database) {}
-
-  // TokenStore methods
-  async get(key: string): Promise<Tokens | null> {
-    return await this.db.tokens.findOne({ key });
-  }
-
-  async set(key: string, tokens: Tokens): Promise<void> {
-    await this.db.tokens.upsert({ key }, tokens);
-  }
-
-  async delete(key: string): Promise<void> {
-    await this.db.tokens.delete({ key });
-  }
-
-  // Client registration methods
-  async getClient(key: string): Promise<ClientInfo | null> {
-    return await this.db.clients.findOne({ key });
-  }
-
-  async setClient(key: string, client: ClientInfo): Promise<void> {
-    await this.db.clients.upsert({ key }, client);
-  }
-
-  async deleteClient(key: string): Promise<void> {
-    await this.db.clients.delete({ key });
-  }
-
-  // PKCE verifier methods
-  async getCodeVerifier(key: string): Promise<string | null> {
-    const doc = await this.db.verifiers.findOne({ key });
-    return doc?.verifier ?? null;
-  }
-
-  async setCodeVerifier(key: string, verifier: string): Promise<void> {
-    await this.db.verifiers.upsert({ key }, { verifier });
-  }
-
-  async deleteCodeVerifier(key: string): Promise<void> {
-    await this.db.verifiers.delete({ key });
-  }
-}
 ```
 
-## MCP Types
+MCP SDK types (`Client`, `ConnectOptions`, `OAuthClientProvider`, `OAuthClientMetadata`, `StoredOAuthClientInformation`, `StreamableHTTPClientTransportOptions`) come from `@modelcontextprotocol/client`.
 
 ### BrowserAuthOptions
 
-Configuration for browser-based OAuth flows with MCP servers.
-
-```typescript
+```ts
 interface BrowserAuthOptions {
-  // OAuth credentials
-  clientId?: string; // Pre-registered client ID
-  clientSecret?: string; // Pre-registered secret
-  scope?: string; // OAuth scopes
-
-  // Server configuration
-  port?: number; // Callback port (default: 3000)
-  hostname?: string; // Hostname (default: "localhost")
-  callbackPath?: string; // Path (default: "/callback")
-
-  // Storage
-  store?: TokenStore; // Token storage
-  storeKey?: string; // Storage key for token isolation
-
-  // Behavior
-  launch?: (authorizationUrl: string) => unknown; // Default: system browser
-  authTimeout?: number; // Timeout ms (default: 300000)
-
-  // UI
-  successHtml?: string; // Success page HTML
-  errorHtml?: string; // Error page template
-
-  // Debugging
-  onRequest?: (req: Request) => void; // Request logger
+  /** The one MCP server this provider (and its store) serves. */
+  serverUrl: string | URL;
+  /** Fixed loopback redirect URI, e.g. `http://127.0.0.1:8765/callback` (no port 0). */
+  redirectUri: string | URL;
+  /** Client name for Dynamic Client Registration; required unless `clientInformation` is set. */
+  clientName?: string;
+  /** Pre-registered client; `issuer` is the MCP server's `authorization_servers` entry. */
+  clientInformation?: StoredOAuthClientInformation & { issuer: string };
+  /** Extra client metadata (e.g. `scope`, `grant_types`). */
+  clientMetadata?: Partial<
+    Omit<
+      OAuthClientMetadata,
+      "client_name" | "redirect_uris" | "response_types" | "application_type"
+    >
+  >;
+  /** Credential persistence. Default: memory. */
+  store?: CredentialStore;
+  /** Opens the URL; only a rejection fails the flow. */
+  launch?: (url: URL) => unknown;
+  /** Milliseconds for one authorization. `connect()` aborts its OAuth requests at the deadline; bound your own transport's fetch. Default 300_000. */
+  timeout?: number;
+  successHtml?: string;
+  errorHtml?: string;
 }
 ```
 
-#### Usage Example
+### BrowserAuth
 
-```typescript
-import type { BrowserAuthOptions } from "oauth-callback/mcp";
-import { browserAuth, fileStore } from "oauth-callback/mcp";
-
-const options: BrowserAuthOptions = {
-  // Dynamic Client Registration - no credentials needed
-  scope: "read write",
-
-  // Custom server configuration
-  port: 8080,
-  hostname: "127.0.0.1",
-
-  // Persistent storage
-  store: fileStore("~/.myapp/tokens.json"),
-  storeKey: "production",
-
-  // Timeout
-  authTimeout: 600000, // 10 minutes
-
-  // Custom UI
-  successHtml: "<h1>Success!</h1>",
-
-  // Debugging
-  onRequest: (req) => {
-    console.log(`[OAuth] ${new URL(req.url).pathname}`);
-  },
-};
-
-const authProvider = browserAuth(options);
-```
-
-## Error Types
-
-### OAuthError
-
-OAuth-specific error class.
-
-```typescript
-class OAuthError extends Error {
-  name: "OAuthError";
-  error: string; // OAuth error code
-  error_description?: string; // Human-readable description
-  error_uri?: string; // Info URI
-
-  constructor(error: string, description?: string, uri?: string);
-}
-```
-
-### TimeoutError
-
-Timeout-specific error class.
-
-```typescript
-class TimeoutError extends Error {
-  name: "TimeoutError";
-  constructor(message?: string);
-}
-```
-
-#### Error Handling Example
-
-```typescript
-import { OAuthError, TimeoutError } from "oauth-callback";
-import type { CallbackResult } from "oauth-callback";
-
-function handleAuthResult(result: CallbackResult) {
-  // Check for OAuth errors in result
-  if (result.error) {
-    throw new OAuthError(
-      result.error,
-      result.error_description,
-      result.error_uri,
-    );
-  }
-
-  if (!result.code) {
-    throw new Error("No authorization code received");
-  }
-
-  return result.code;
-}
-
-// Usage with proper error handling
-try {
-  const code = await getAuthCode(authUrl);
-} catch (error) {
-  if (error instanceof OAuthError) {
-    console.error(`OAuth error: ${error.error}`);
-  } else if (error instanceof TimeoutError) {
-    console.error("Authorization timed out");
-  } else {
-    console.error("Unexpected error:", error);
-  }
-}
-```
-
-## Type Guards
-
-Useful type guard functions for runtime type checking:
-
-```typescript
-import type { Tokens, ClientInfo } from "oauth-callback/mcp";
-
-// Check if object is Tokens
-function isTokens(obj: unknown): obj is Tokens {
-  return (
-    typeof obj === "object" &&
-    obj !== null &&
-    "accessToken" in obj &&
-    typeof (obj as any).accessToken === "string"
-  );
-}
-
-// Check if object is ClientInfo
-function isClientInfo(obj: unknown): obj is ClientInfo {
-  return (
-    typeof obj === "object" &&
-    obj !== null &&
-    "clientId" in obj &&
-    typeof (obj as any).clientId === "string"
-  );
-}
-
-// Check if error is OAuthError
-function isOAuthError(error: unknown): error is OAuthError {
-  return error instanceof OAuthError;
-}
-
-// Usage
-const stored = await store.get("key");
-if (stored && isTokens(stored)) {
-  console.log("Valid tokens:", stored.accessToken);
-}
-```
-
-## Generic Type Patterns
-
-### Result Type Pattern
-
-```typescript
-type Result<T, E = Error> =
-  { success: true; data: T } | { success: false; error: E };
-
-async function safeGetAuthCode(
-  url: string,
-): Promise<Result<CallbackResult, OAuthError | Error>> {
-  try {
-    const result = await getAuthCode(url);
-    return { success: true, data: result };
-  } catch (error) {
-    if (error instanceof OAuthError) {
-      return { success: false, error };
-    }
-    return { success: false, error: error as Error };
-  }
-}
-
-// Usage
-const result = await safeGetAuthCode(authUrl);
-if (result.success) {
-  console.log("Code:", result.data.code);
-} else {
-  console.error("Error:", result.error.message);
-}
-```
-
-### Storage Adapter Pattern
-
-```typescript
-type StorageAdapter<T> = {
-  load(): Promise<T | null>;
-  save(data: T): Promise<void>;
-  remove(): Promise<void>;
-};
-
-function createStorageAdapter<T>(
-  store: TokenStore,
-  key: string,
-): StorageAdapter<T> {
-  return {
-    async load() {
-      const data = await store.get(key);
-      return data as T | null;
+```ts
+interface BrowserAuth extends OAuthClientProvider {
+  connect(
+    client: Client,
+    options?: ConnectOptions & {
+      transportOptions?: Omit<
+        StreamableHTTPClientTransportOptions,
+        "authProvider"
+      >;
     },
-    async save(data: T) {
-      await store.set(key, data as any);
-    },
-    async remove() {
-      await store.delete(key);
-    },
-  };
+  ): Promise<void>;
+  completeAuthorization(
+    transport: { finishAuth(params: URLSearchParams): Promise<void> },
+    options?: { signal?: AbortSignal },
+  ): Promise<void>;
 }
 ```
 
-## Type Exports
+See [browserAuth](/api/browser-auth).
 
-### Main Package Exports
+### CredentialStore
 
-```typescript
-// From "oauth-callback"
-export type {
-  GetAuthCodeOptions,
-  CallbackResult,
-  CallbackServer,
-  ServerOptions,
-};
-
-export { getAuthCode, OAuthError, inMemoryStore, fileStore };
-```
-
-### MCP Sub-Package Exports
-
-```typescript
-// From "oauth-callback/mcp"
-export type { BrowserAuthOptions, TokenStore, OAuthStore, Tokens, ClientInfo };
-
-export { browserAuth, inMemoryStore, fileStore };
-```
-
-### Namespace Export
-
-```typescript
-// Also available via namespace
-import { mcp } from "oauth-callback";
-
-// All MCP types and functions under mcp namespace
-const authProvider = mcp.browserAuth({
-  store: mcp.fileStore(),
-});
-```
-
-## TypeScript Configuration
-
-For optimal type support, use these TypeScript settings:
-
-```json
-{
-  "compilerOptions": {
-    "target": "ES2020",
-    "module": "ESNext",
-    "moduleResolution": "bundler",
-    "strict": true,
-    "esModuleInterop": true,
-    "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true,
-    "types": ["node", "bun-types"]
-  }
+```ts
+interface CredentialStore {
+  /** Returns the saved text, or `undefined` when empty. */
+  load(): Promise<string | undefined>;
+  /** Replaces the saved text; `undefined` clears it. */
+  save(value: string | undefined): Promise<void>;
 }
 ```
 
-## Type Versioning
+See [CredentialStore](/api/credential-store).
 
-The library follows semantic versioning for types:
+## Runtime exports
 
-- **Major version**: Breaking type changes
-- **Minor version**: New types or optional properties
-- **Patch version**: Type fixes that don't break compatibility
-
-## Related Documentation
-
-- [`getAuthCode`](/api/get-auth-code) - Main function using these types
-- [`browserAuth`](/api/browser-auth) - MCP provider using these types
-- [`Storage Providers`](/api/storage-providers) - Storage type implementations
-- [`OAuthError`](/api/oauth-error) - Error type documentation
+| Entry point          | Values                              | Types                                                                      |
+| -------------------- | ----------------------------------- | -------------------------------------------------------------------------- |
+| `oauth-callback`     | `getAuthCode`, `OAuthCallbackError` | `AuthorizationCodeResult`, `AuthorizationUrlBuilder`, `GetAuthCodeOptions` |
+| `oauth-callback/mcp` | `browserAuth`, `fileStore`          | `BrowserAuth`, `BrowserAuthOptions`, `CredentialStore`                     |

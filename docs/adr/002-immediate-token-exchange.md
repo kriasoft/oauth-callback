@@ -1,6 +1,6 @@
 # ADR-002: Immediate Token Exchange in redirectToAuthorization()
 
-**Status:** Accepted
+**Status:** Superseded by [ADR-006](./006-mcp-sdk-owns-oauth.md) (v3)
 **Date:** 2025-01-25
 **Tags:** oauth, mcp, sdk-integration
 

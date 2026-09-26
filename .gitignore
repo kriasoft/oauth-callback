@@ -45,3 +45,9 @@ docs/.vitepress/cache
 
 # Srcpack output
 .srcpack/
+
+# Deno (runtime smoke test)
+deno.lock
+
+# local scratch
+/tmp/

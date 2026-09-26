@@ -3,9 +3,9 @@
 layout: home
 
 hero:
-  name: "OAuth flow for your CLI or Node.js app"
+  name: "OAuth flow for your CLI or desktop app"
   text: ""
-  tagline: "Lightweight, cross-runtime, with native MCP SDK integration for AI agents"
+  tagline: "Capture an authorization code on a loopback redirect URI in Node.js, Deno and Bun, with a one-line browser provider for the MCP SDK"
   image:
     src: https://raw.githubusercontent.com/kriasoft/oauth-callback/main/examples/notion.gif
     alt: OAuth Callback Demo
@@ -14,80 +14,70 @@ hero:
       text: Get Started
       link: /getting-started
     - theme: alt
+      text: Migrate from v2
+      link: /migration-v3
+    - theme: alt
       text: View on GitHub
       link: https://github.com/kriasoft/oauth-callback
 
 features:
   - icon: 🚀
-    title: Multi-Runtime Support
-    details: Works seamlessly across Node.js 18+, Deno, and Bun. Write once, run anywhere with modern Web Standards APIs.
-  - icon: 🤖
-    title: MCP SDK Integration
-    details: Built-in OAuth provider for Model Context Protocol. Enable AI agents with secure authentication using browserAuth().
-  - icon: ⚡
-    title: Zero Configuration
-    details: Automatic localhost server setup, browser launching, and cleanup. Just pass your OAuth URL and get the auth code.
-  - icon: 📘
-    title: TypeScript First
-    details: Full TypeScript support with comprehensive types. Get IntelliSense and type safety throughout your OAuth flows.
-  - icon: 💾
-    title: Flexible Token Storage
-    details: Choose between ephemeral in-memory storage or persistent file-based tokens. Perfect for both CLI tools and long-running apps.
+    title: Node.js, Deno and Bun
+    details: One node:http listener on Node.js 22+, Deno 2 and Bun 1.2+.
+  - icon: 🔌
+    title: Ephemeral loopback ports
+    details: Binds 127.0.0.1 on a free port (RFC 8252) and hands you the redirect URI. No port collisions, no port config.
   - icon: 🛡️
-    title: Production Ready
-    details: Battle-tested error handling with OAuthError class, customizable templates, and timeout protection. Handle real-world OAuth scenarios.
+    title: Secure by default
+    details: A state on every flow, strict callback and URL validation, neutral pages with security headers.
+  - icon: 🤖
+    title: MCP SDK integration
+    details: browserAuth().connect(client) runs the whole browser flow; the MCP SDK does discovery, DCR, PKCE, exchange and refresh.
+  - icon: ⚡
+    title: Zero runtime dependencies
+    details: The browser launcher is bundled and loaded lazily, only when it is used.
+  - icon: 🎯
+    title: Small, typed API
+    details: One function, one error class, and a two-method credential store.
 ---
 
 ## Quick Start
 
 ::: code-group
 
-```typescript [Basic Usage]
+```ts [getAuthCode]
 import { getAuthCode } from "oauth-callback";
 
-// Just pass your OAuth URL - that's it!
-const result = await getAuthCode(
-  "https://github.com/login/oauth/authorize?client_id=xxx",
-);
-
-console.log("Auth code:", result.code);
-```
-
-```typescript [MCP Integration]
-import { browserAuth, inMemoryStore } from "oauth-callback/mcp";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-
-// OAuth provider for Notion MCP server
-// See: https://developers.notion.com/docs/get-started-with-mcp
-const authProvider = browserAuth({
-  store: inMemoryStore(), // Ephemeral tokens (lost on restart)
+const { code, redirectUri } = await getAuthCode(() => {
+  const url = new URL("https://github.com/login/oauth/authorize");
+  url.searchParams.set("client_id", CLIENT_ID);
+  return url; // redirect_uri and state are appended
 });
 
-// Connect to Notion's MCP server with OAuth
-const transport = new StreamableHTTPClientTransport(
-  new URL("https://mcp.notion.com/mcp"),
-  { authProvider },
-);
+await exchangeCode({ code, redirectUri }); // your token request
+```
 
-const client = new Client(
-  { name: "my-app", version: "1.0.0" },
-  { capabilities: {} },
-);
+```ts [MCP SDK]
+import { Client } from "@modelcontextprotocol/client";
+import { browserAuth, fileStore } from "oauth-callback/mcp";
+import { homedir } from "node:os";
+import { join } from "node:path";
 
-await client.connect(transport);
-// Now you can use Notion's MCP tools!
+const auth = browserAuth({
+  serverUrl: "https://mcp.notion.com/mcp",
+  redirectUri: "http://127.0.0.1:8765/callback",
+  clientName: "Acme CLI",
+  store: fileStore(join(homedir(), ".config/acme/notion.json")),
+});
+
+const client = new Client({ name: "acme", version: "1.0.0" });
+await auth.connect(client); // opens the browser if needed
 ```
 
 ```bash [Installation]
-# Using Bun (recommended)
 bun add oauth-callback
-
-# Using npm
+# or
 npm install oauth-callback
-
-# Using pnpm
-pnpm add oauth-callback
 ```
 
 :::

@@ -9,62 +9,39 @@
 
 ```bash
 oauth-callback/
-├── src/                     # Source code
-│   ├── index.ts             # Main entry - exports getAuthCode(), OAuthError, mcp namespace
-│   ├── mcp.ts               # MCP SDK exports - browserAuth(), storage, types
-│   ├── server.ts            # HTTP server for OAuth callbacks
-│   ├── errors.ts            # OAuthError class and error handling
-│   ├── mcp-types.ts         # TypeScript interfaces for MCP integration
-│   ├── auth/                # Authentication providers
-│   │   ├── browser-auth.ts  # MCP SDK-compatible OAuth provider
-│   │   └── browser-auth.test.ts
-│   ├── storage/             # Token storage implementations
-│   │   ├── memory.ts        # In-memory token store
-│   │   └── file.ts          # Persistent file-based token store
-│   └── utils/               # Utility functions
-│       └── token.ts         # Token expiry calculations
-│
-├── templates/               # HTML templates for callback pages
-│   ├── success.html         # Success page with animated checkmark
-│   ├── error.html           # Error page for OAuth failures
-│   └── build.ts             # Template compiler (bundles HTML into TypeScript)
-│
-├── examples/                # Usage examples
-│   ├── demo.ts              # Interactive demo with mock OAuth server
-│   ├── github.ts            # GitHub OAuth integration example
-│   └── notion.ts            # Notion MCP with Dynamic Client Registration
-│
-├── dist/                    # Build output (generated)
-│   ├── index.js             # Main bundle
-│   ├── index.d.ts           # Main TypeScript declarations
-│   ├── mcp.js               # MCP-specific bundle
-│   ├── mcp.d.ts            # MCP TypeScript declarations
-│   └── ...
-│
-├── package.json             # Project metadata and dependencies
-├── tsconfig.json            # TypeScript configuration
-├── README.md                # User documentation
-└── CLAUDE.md                # This file - AI assistant context
+├── src/
+│   ├── index.ts             # Root exports: getAuthCode, OAuthCallbackError, types
+│   ├── get-auth-code.ts     # getAuthCode(), URL validation, lifecycle (ADR-004, ADR-007)
+│   ├── loopback.ts          # Redirect URI parsing, node:http callback listener, pages (ADR-008)
+│   ├── launch.ts            # Default launcher (lazy `open` chunk)
+│   └── mcp/
+│       ├── index.ts         # /mcp exports: browserAuth, fileStore, types
+│       ├── browser-auth.ts  # MCP SDK provider, connect(), flow ownership (ADR-006)
+│       ├── credential-store.ts # CredentialStore + stored document format (ADR-005)
+│       └── file-store.ts    # fileStore(absolutePath)
+├── test/                    # bun:test suites, mock MCP/AS server, runtime smoke test
+├── scripts/build.ts         # Split bundle (root, /mcp, lazy launcher chunk)
+├── examples/                # demo (mock AS), GitHub, Notion MCP
+└── docs/                    # VitePress site, ADRs, migration guide
 ```
 
 ## Module Organization
 
 ### Main Export (`oauth-callback`)
 
-- `getAuthCode()` - Core OAuth authorization code capture
-- `OAuthError` - OAuth-specific error class
-- `mcp` namespace - Access to all MCP-specific functionality
-- Storage implementations for backward compatibility
+- `getAuthCode(authorization, options?)` - URL or builder form; resolves `{ code, redirectUri, params }`
+- `OAuthCallbackError` - error callback from the authorization server
+- Core never imports MCP code
 
 ### MCP Export (`oauth-callback/mcp`)
 
-- `browserAuth()` - MCP SDK-compatible OAuth provider
-- `inMemoryStore()` - Ephemeral token storage
-- `fileStore()` - Persistent file-based token storage
-- Type exports: `BrowserAuthOptions`, `Tokens`, `TokenStore`, `ClientInfo`, `OAuthStore`
+- `browserAuth()` - `OAuthClientProvider` + `connect(client)` + `completeAuthorization(transport)`
+- `fileStore(path)` - persistent `CredentialStore`
+- Types: `BrowserAuth`, `BrowserAuthOptions`, `CredentialStore` (SDK types are never re-exported)
 
 ## Key Constraints
 
 - Design Philosophy: Prioritize ideal design over backward compatibility
 - Runtime: Always use Bun (not Node.js/NPM). Bun auto-loads .env files
-- MCP SDK: OAuth/auth implementation in `node_modules/@modelcontextprotocol/sdk/dist/esm/client/auth.js`, `node_modules/@modelcontextprotocol/sdk/dist/esm/client/auth.d.ts`
+- MCP SDK: `@modelcontextprotocol/client` 2.x (optional peer); OAuth implementation in `node_modules/@modelcontextprotocol/client/dist/index.mjs` (`auth`, `authInternal`), typings in `dist/index.d.mts`
+- Zero runtime dependencies: `open` is a devDependency bundled into a lazy chunk

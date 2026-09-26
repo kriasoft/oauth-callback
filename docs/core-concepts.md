@@ -1,504 +1,178 @@
 ---
 title: Core Concepts
-description: Master the fundamental concepts and architecture of OAuth Callback, from the authorization flow to token management and MCP integration patterns.
+description: How OAuth Callback handles redirect URIs, state, callback validation, cancellation and MCP authorization.
 ---
 
 # Core Concepts {#top}
 
-Understanding the core concepts behind **OAuth Callback** will help you build robust OAuth integrations in your CLI tools, desktop applications, and MCP clients. This page covers the fundamental patterns, architectural decisions, and key abstractions that power the library.
+## The redirect URI
 
-## The Authorization Code Flow
+The redirect URI is the one address option. It must be `http:` on `127.0.0.1`, `[::1]` or `localhost`, with no fragment, credentials, duplicate query keys, or callback parameters (`state`, `code`, `error`, `error_description`, `error_uri`, `iss`) in its query. The library listens on it; when the authorization request carries `redirect_uri`, it must be the same value.
 
-OAuth Callback implements the OAuth 2.0 Authorization Code Flow, the most secure flow for applications that can protect client secrets. This flow involves three key participants:
+`getAuthCode()` accepts the authorization request in two forms:
 
-```mermaid
-flowchart LR
-    A[Your App] -->|Step 1: Request authorization| B[Auth Server]
-    B -->|Step 2: User authenticates| C[User]
-    C -->|Step 3: Grants permission| B
-    B -->|Step 4: Returns code| A
-    A -->|Step 5: Exchange code| B
-    B -->|Step 6: Returns tokens| A
+```ts
+// Builder (recommended): called after the listener binds
+await getAuthCode(({ redirectUri, state, signal }) =>
+  buildUrl(redirectUri, state),
+);
+
+// Prebuilt URL: listens on its redirect_uri, appends state if missing
+await getAuthCode(
+  "https://auth.example.com/authorize?client_id=app&redirect_uri=http%3A%2F%2F127.0.0.1%3A8765%2Fcallback",
+);
+
+// Prebuilt URL without redirect_uri (the provider uses its registered one)
+await getAuthCode(authUrl, { redirectUri: "http://127.0.0.1:8765/callback" });
 ```
 
-### Why Authorization Code Flow?
+**Builder form.** The default redirect URI is `http://127.0.0.1:0/callback`: port 0 means the OS assigns a free port ([RFC 8252 §7.3](https://www.rfc-editor.org/rfc/rfc8252.html#section-7.3)), so the URL can only be built after binding. The builder receives the bound `redirectUri`, a fresh `state` and the flow's `signal`. `redirect_uri` and `state` are appended when absent and must match when present.
 
-The authorization code flow provides several security benefits:
+**URL form.** The library listens on the URL's `redirect_uri`, or on the `redirectUri` option when the URL has none. Port 0 is not allowed: the provider must already know the port.
 
-- **No token exposure**: Access tokens never pass through the browser
-- **Short-lived codes**: Authorization codes expire quickly (typically 10 minutes)
-- **Server verification**: The auth server can verify the client's identity
-- **PKCE support**: Protection against authorization code interception
+**PAR/JAR.** Pushed and signed requests carry `redirect_uri` and `state` inside the request object, so only the builder form supports them. Put the provided values into the pushed request and return the short URL; pass `signal` to `fetch`.
 
-## The Localhost Callback Pattern
-
-The core innovation of OAuth Callback is making the localhost callback pattern trivially simple to implement. This pattern, standardized in [RFC 8252](https://www.rfc-editor.org/rfc/rfc8252.html), solves a fundamental problem: how can native applications receive OAuth callbacks without a public web server?
-
-### The Problem
-
-Traditional web applications have public URLs where OAuth providers can send callbacks:
-
-```text
-https://myapp.com/oauth/callback?code=xyz123
+```ts
+const { code, redirectUri } = await getAuthCode(
+  async ({ redirectUri, state, signal }) => {
+    const res = await fetch(PAR_ENDPOINT, {
+      method: "POST",
+      body: new URLSearchParams({
+        client_id,
+        redirect_uri: redirectUri.href,
+        state,
+        code_challenge,
+        code_challenge_method: "S256",
+      }),
+      signal,
+    });
+    const { request_uri } = await res.json();
+    return `${AUTHORIZE}?client_id=${client_id}&request_uri=${encodeURIComponent(request_uri)}`;
+  },
+);
 ```
 
-But CLI tools and desktop apps don't have public URLs. They run on the user's machine behind firewalls and NAT.
+**`localhost`.** Accepted, never generated ([RFC 8252 §8.3](https://www.rfc-editor.org/rfc/rfc8252.html#section-8.3)). A `localhost` redirect URI listens on `127.0.0.1`.
 
-### The Solution
+The result's `redirectUri` is the exact redirect URI of the flow, never re-serialized. When the authorization request carried `redirect_uri` (always with a builder), send it verbatim in the token request ([RFC 6749 §4.1.3](https://www.rfc-editor.org/rfc/rfc6749.html#section-4.1.3)). A prebuilt URL without `redirect_uri` relies on the provider's registered URI; follow the provider's rules for the token request.
 
-OAuth Callback creates a temporary HTTP server on localhost that:
+## State and callback validation
 
-1. **Binds locally**: Listens on `localhost` by default (keep `hostname` on a loopback interface)
-2. **Uses dynamic ports**: Works with any available port
-3. **Auto-terminates**: Shuts down after receiving the callback
-4. **Handles edge cases**: Timeouts, errors, user cancellation
+Every flow has a `state`: 32 random bytes, base64url. A prebuilt URL may bring its own.
 
-```typescript
-// This single function handles all the complexity
-const result = await getAuthCode({ authorizationUrl, launch: true });
+The listener accepts a callback only when it is unambiguously this flow's:
+
+- `GET` on the exact redirect path, with the redirect URI's own query parameters
+- exactly one `state`, equal to the flow's
+- either `code` or `error` (not both, not empty), with no duplicated `code`, `error`, `error_description`, `error_uri` or `iss`
+
+Anything else gets a 400 and the flow keeps waiting, so a stray or stale request can't end it. The first valid callback wins; later ones get a 400.
+
+## Authorization URL validation
+
+Every authorization URL is checked before any launcher sees it:
+
+- `https:`, or `http:` on a loopback host
+- no fragment or credentials
+- `state`, `redirect_uri`, `response_type`, `response_mode`, `request` and `request_uri` at most once
+- `response_type` absent or `code`, `response_mode` absent or `query`
+
+Failures throw `TypeError`: for a prebuilt URL before anything binds, for a builder's URL before launch (the listener binds first).
+
+## Launching the browser
+
+`launch` receives the final URL: with `redirect_uri` and `state` in place, except a builder's PAR/JAR URL, which carries them in the pushed request. The default opens the system browser; the launcher is bundled and loaded lazily, so flows with a custom `launch` never load it.
+
+The launcher's fulfillment is ignored: resolving doesn't mean the user finished. A throw or rejection fails the flow with that error.
+
+```ts
+await getAuthCode(build, { launch: (url) => console.log(`Open ${url}`) }); // headless / SSH
+await getAuthCode(build, { launch: (url) => showQrCode(url) });
+await getAuthCode(build, { launch: (url) => fetch(url) }); // tests against a mock server
 ```
 
-## Architecture Overview
+## Timeout and cancellation
 
-OAuth Callback is built on a layered architecture that separates concerns and enables flexibility:
+One signal drives every stage: your `signal` combined with `timeout` (default 300000 ms, an integer in [1, 2³¹−1]). It covers the builder, the launcher and the wait for the callback.
 
-```mermaid
-flowchart TD
-    subgraph "Application Layer"
-        A[Your CLI/Desktop App]
-    end
+- **Timeout** rejects with a `DOMException` named `TimeoutError`.
+- **Abort** rejects with `signal.reason`.
 
-    subgraph "OAuth Callback Library"
-        B[getAuthCode Function]
-        C[HTTP Server Module]
-        D[Browser Launcher]
-        E[Error Handler]
-        F[Template Engine]
-    end
+The listener closes in every case.
 
-    subgraph "MCP Integration Layer"
-        G[browserAuth Provider]
-        H[Token Storage]
-        I[Dynamic Client Registration]
-    end
+## Callback pages
 
-    A --> B
-    B --> C
-    B --> D
-    B --> E
-    B --> F
-    A --> G
-    G --> H
-    G --> I
-```
+The browser gets a neutral page: "Authorization response received. You can close this tab." or "Authorization failed. Return to the application for details." Callback data is never rendered, because `error_description` and `error_uri` are attacker-controllable until verified. Show details in your own UI.
 
-### Core Components
+`successHtml` and `errorHtml` replace the defaults and are served verbatim; there is no templating. Every response carries:
 
-#### 1. The HTTP Server (`server.ts`)
+- `Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`
+- `Cache-Control: no-store`
+- `Referrer-Policy: no-referrer`
+- `X-Content-Type-Options: nosniff`
 
-The heart of OAuth Callback is a lightweight HTTP server that:
+The CSP forbids scripts, so custom pages should be HTML and CSS only.
 
-- Listens on localhost for the OAuth callback
-- Parses query parameters from the redirect
-- Serves success/error HTML pages
-- Implements proper cleanup on completion
+## MCP authorization
 
-Internally, the server handles:
+`oauth-callback/mcp` splits the work with the MCP SDK (`@modelcontextprotocol/client`):
 
-- Request routing (`/callback` path matching)
-- Query parameter extraction (`code`, `state`, `error`)
-- HTML template rendering with placeholders
-- Graceful shutdown after callback
-
-#### 2. The Authorization Handler (`getAuthCode`)
-
-The main API surface that orchestrates the entire flow:
-
-```typescript
-interface GetAuthCodeOptions {
-  authorizationUrl: string; // OAuth provider URL
-  port?: number; // Server port (default: 3000)
-  timeout?: number; // Timeout in ms (default: 30000)
-  launch: boolean | ((authorizationUrl: string) => unknown); // true: system browser, false: caller shows URL
-  signal?: AbortSignal; // For cancellation
-  // ... more options
-}
-```
-
-#### 3. Error Management (`OAuthError`)
-
-Specialized error handling for OAuth-specific failures:
-
-```typescript
-class OAuthError extends Error {
-  error: string; // OAuth error code
-  error_description?: string; // Human-readable description
-  error_uri?: string; // Link to more information
-}
-```
-
-Common OAuth errors are properly typed and handled:
-
-- `access_denied` - User declined authorization
-- `invalid_scope` - Requested scope is invalid
-- `server_error` - Authorization server error
-- `temporarily_unavailable` - Server is overloaded
-
-## Token Management
-
-For applications that need to persist OAuth tokens, OAuth Callback provides a flexible storage abstraction:
-
-### Storage Abstraction
-
-The `TokenStore` interface enables different storage strategies:
-
-```typescript
-interface TokenStore {
-  get(key: string): Promise<Tokens | null>;
-  set(key: string, tokens: Tokens): Promise<void>;
-  delete(key: string): Promise<void>;
-}
-```
-
-### Built-in Implementations
-
-#### In-Memory Store
-
-Ephemeral storage for maximum security:
-
-```typescript
-const store = inMemoryStore();
-// Tokens exist only during process lifetime
-// Perfect for CLI tools that authenticate per-session
-```
-
-#### File Store
-
-Persistent storage for convenience:
-
-```typescript
-const store = fileStore("~/.myapp/tokens.json");
-// Tokens persist across sessions
-// Ideal for desktop apps with returning users
-```
-
-### Token Lifecycle
-
-OAuth Callback uses re-authentication instead of refresh tokens. When tokens expire, the provider returns `undefined`, signaling the MCP SDK to re-initiate the OAuth flow. This simplifies implementation and avoids storing long-lived refresh credentials.
-
-```mermaid
-stateDiagram-v2
-    [*] --> NoToken: Initial State
-    NoToken --> Authorizing: User initiates OAuth
-    Authorizing --> HasToken: Successful auth
-    HasToken --> Authorizing: Token expired (re-auth)
-    HasToken --> NoToken: User logs out
-```
-
-## MCP Integration Pattern
-
-The Model Context Protocol (MCP) integration showcases advanced OAuth patterns:
-
-### Dynamic Client Registration
-
-OAuth Callback supports [RFC 7591](https://www.rfc-editor.org/rfc/rfc7591.html) Dynamic Client Registration, allowing apps to register OAuth clients on-the-fly:
+| MCP SDK                             | `browserAuth()`                    |
+| ----------------------------------- | ---------------------------------- |
+| Protected-resource and AS discovery | Opening the browser                |
+| Dynamic Client Registration         | Loopback listener and `state`      |
+| PKCE                                | Flow ownership and timeout         |
+| Token exchange and refresh          | Credential persistence             |
+| `iss` checks, client authentication | `connect()` with automatic retries |
 
 ```mermaid
 sequenceDiagram
     participant App
-    participant OAuth Callback
-    participant Auth Server
-
-    App->>OAuth Callback: browserAuth() (no client_id)
-    OAuth Callback->>Auth Server: POST /register
-    Auth Server->>OAuth Callback: Return client_id, client_secret
-    OAuth Callback->>OAuth Callback: Store credentials
-    OAuth Callback->>Auth Server: Start normal OAuth flow
-```
-
-This eliminates the need for users to manually register OAuth applications.
-
-### The Provider Pattern
-
-The `browserAuth()` function returns an `OAuthClientProvider` that integrates with MCP SDK:
-
-```typescript
-interface OAuthClientProvider {
-  // Token access - returns undefined when expired, triggering re-auth
-  tokens(): Promise<OAuthTokens | undefined>;
-  saveTokens(tokens: OAuthTokens): Promise<void>;
-
-  // Completes full OAuth flow (browser → callback → token exchange)
-  redirectToAuthorization(authorizationUrl: URL): Promise<void>;
-
-  // PKCE and state management
-  codeVerifier(): Promise<string>;
-  saveCodeVerifier(verifier: string): Promise<void>;
-  state(): Promise<string>;
-}
-```
-
-## Request/Response Lifecycle
-
-Understanding the complete lifecycle helps when debugging OAuth flows:
-
-```mermaid
-sequenceDiagram
-    participant User
-    participant App
-    participant OAuth Callback
+    participant Auth as browserAuth
+    participant SDK as MCP SDK transport
     participant Browser
-    participant Auth Server
+    participant Server as MCP / auth server
 
-    User->>App: Run command
-    App->>OAuth Callback: getAuthCode(url)
-    OAuth Callback->>OAuth Callback: Start HTTP server
-    OAuth Callback->>Browser: Open auth URL
-    Browser->>Auth Server: GET /authorize
-    Auth Server->>Browser: Login page
-    Browser->>User: Show login
-    User->>Browser: Enter credentials
-    Browser->>Auth Server: POST credentials
-    Auth Server->>Browser: Consent page
-    User->>Browser: Approve access
-    Auth Server->>Browser: Redirect to localhost
-    Browser->>OAuth Callback: GET /callback?code=xyz
-    OAuth Callback->>Browser: Success HTML
-    OAuth Callback->>App: Return {code: "xyz"}
-    OAuth Callback->>OAuth Callback: Shutdown server
-    App->>Auth Server: Exchange code for token
-    Auth Server->>App: Return access token
+    App->>Auth: connect(client)
+    Auth->>SDK: client.connect(transport)
+    SDK->>Server: Request
+    Server-->>SDK: 401
+    SDK->>Server: Discovery, DCR (if needed)
+    SDK->>Auth: redirectToAuthorization(url)
+    Auth->>Auth: Bind redirectUri
+    Auth->>Browser: Open URL
+    SDK-->>Auth: UnauthorizedError
+    Browser->>Auth: GET /callback?code=…&state=…
+    Auth->>SDK: finishAuth(params) on the same transport
+    SDK->>Server: Token exchange (PKCE)
+    Auth->>SDK: client.connect(new transport)
+    SDK->>Server: Request with access token
+    Auth-->>App: Connected
 ```
 
-## State Management
+Key rules:
 
-OAuth Callback handles multiple types of state throughout the flow:
+- **Fixed redirect URI.** `redirectUri` is required and can't use port 0: Dynamic Client Registration registers it.
+- **One flow at a time.** A provider runs one interactive authorization at a time, from `state()` until its token exchange settles. Overlapping attempts fail fast instead of merging: `UnauthorizedError` on transports `connect()` created, a plain `Error` on your own transports, where only the originating transport may complete a flow.
+- **Same transport.** A flow completes on the transport that received the 401/403, which holds the scope and resource metadata the exchange needs.
+- **`timeout`** bounds one flow. `connect()` aborts its OAuth requests (discovery, registration, token exchange) at the deadline; `completeAuthorization()` can't interrupt your transport's `finishAuth()`, so give that transport a bounded `fetch`.
 
-### Server State
+`connect(client)` resolves once the client is connected. For a client it already connected it is a no-op, after completing any pending step-up flow, so it is safe to call again on `UnauthorizedError`. It never closes a transport it didn't create. For your own transports, use `completeAuthorization(transport)`.
 
-The HTTP server maintains minimal state:
+## Credential storage
 
-- **Active**: Server is listening for callbacks
-- **Received**: Callback has been received
-- **Shutdown**: Server is closing
+A `CredentialStore` persists one opaque string: `load()` and `save(text)`. The adapter owns the format (`{ version: 1, serverUrl, client?, tokens? }`), so a custom store never deals with OAuth records.
 
-### OAuth State
+- **Default:** memory, for the process lifetime.
+- **`fileStore(path)`:** an absolute path, written atomically, with 0600 permissions on POSIX. No cross-process locking: one file per process.
+- **Custom:** e.g. the OS keychain.
 
-The OAuth flow tracks:
+Use one store per MCP server: tokens are audience-bound ([RFC 8707](https://www.rfc-editor.org/rfc/rfc8707.html)), and a store holding another server's credentials throws. The PKCE verifier, `state` and discovery state stay in memory. See [CredentialStore](/api/credential-store).
 
-- **Authorization URL**: Where to send the user
-- **Expected state**: For CSRF validation
-- **Timeout timer**: For abandonment detection
-- **Abort signal**: For cancellation support
+## Runtimes
 
-### Token State
+One `node:http` implementation serves Node.js 22+, Deno 2 and Bun 1.2+. The package has zero runtime dependencies. `browserAuth()` additionally depends on the runtime support of `@modelcontextprotocol/client`.
 
-When using token storage:
+## Further reading
 
-- **No tokens**: Need to authenticate
-- **Valid tokens**: Can make API calls
-- **Expired tokens**: Triggers re-authentication (no refresh tokens used)
-
-## Security Architecture
-
-Security is built into every layer of OAuth Callback:
-
-### Network Security
-
-The callback server binds to `localhost` by default. Keep `hostname` on a
-loopback interface (`127.0.0.1` or `::1`) so remote hosts can't reach it.
-
-### OAuth Security
-
-- **State parameter**: Callbacks must echo the authorization URL's `state` (ADR-004)
-- **PKCE support**: Protects authorization codes
-- **Timeout enforcement**: Limits exposure window
-- **Automatic cleanup**: Reduces attack surface
-
-### Token Security
-
-- **Memory storage option**: No persistence
-- **File permissions**: Restrictive when using file store
-- **No logging**: Tokens never logged or exposed
-- **Expiry handling**: Automatic re-auth when tokens expire
-
-## Template System
-
-OAuth Callback includes a simple but powerful template system for success/error pages:
-
-### Placeholder Substitution
-
-Templates support `{{placeholder}}` syntax:
-
-```html
-<h1>Error: {{error_description}}</h1>
-```
-
-Placeholders are automatically escaped to prevent XSS attacks.
-
-### Built-in Templates
-
-The library includes professional templates with:
-
-- Animated success checkmark
-- Clear error messages
-- Responsive design
-- Accessibility features
-
-### Custom Templates
-
-Applications can provide custom HTML:
-
-```typescript
-{
-  successHtml: "<h1>Welcome back!</h1>",
-  errorHtml: "<h1>Oops! {{error}}</h1>"
-}
-```
-
-## Cross-Runtime Compatibility
-
-OAuth Callback achieves cross-runtime compatibility through Web Standards APIs:
-
-### Universal APIs
-
-```typescript
-// Using Web Standards instead of Node.js-specific APIs
-new Request(); // Instead of http.IncomingMessage
-new Response(); // Instead of http.ServerResponse
-new URL(); // Instead of url.parse()
-new URLSearchParams(); // Instead of querystring
-```
-
-### Runtime Detection
-
-The library adapts to the runtime environment:
-
-```typescript
-// Node.js
-import { createServer } from "node:http";
-
-// Deno
-Deno.serve({ port: 3000 });
-
-// Bun
-Bun.serve({ port: 3000 });
-```
-
-## Performance Considerations
-
-OAuth Callback is designed for optimal performance:
-
-### Fast Startup
-
-- No external runtime dependencies; browser launcher loaded lazily
-- Lazy loading of heavy modules
-- Pre-compiled HTML templates
-
-### Efficient Memory Use
-
-- Server resources freed immediately after use
-- No persistent connections
-- Minimal state retention
-
-### Quick Response
-
-- Immediate browser redirect handling
-- Non-blocking I/O operations
-- Callback listener ready before browser launch
-
-## Extension Points
-
-While OAuth Callback provides sensible defaults, it offers multiple extension points:
-
-### Custom Storage
-
-Implement the `TokenStore` interface for custom storage:
-
-```typescript
-class RedisStore implements TokenStore {
-  async get(key: string) {
-    /* Redis logic */
-  }
-  async set(key: string, tokens: Tokens) {
-    /* Redis logic */
-  }
-  async delete(key: string) {
-    /* Redis logic */
-  }
-}
-```
-
-### Request Observation
-
-Monitor requests with a callback:
-
-```typescript
-{
-  onRequest: (req) => {
-    console.log(`OAuth: ${req.method} ${new URL(req.url).pathname}`);
-    // Add telemetry, logging, etc.
-  };
-}
-```
-
-### Custom URL Launcher
-
-Customize how the authorization URL is opened:
-
-```typescript
-// Use system browser
-await getAuthCode({ authorizationUrl, launch: true });
-
-// Custom launcher
-await getAuthCode({ authorizationUrl, launch: (url) => myLauncher(url) });
-
-// Manual launch - print URL for the user to open
-console.log(`Open: ${authorizationUrl}`);
-await getAuthCode({ authorizationUrl, launch: false });
-```
-
-## Best Practices
-
-### Error Handling
-
-Always handle both OAuth errors and unexpected failures:
-
-```typescript
-try {
-  const result = await getAuthCode(authUrl);
-} catch (error) {
-  if (error instanceof OAuthError) {
-    // Handle OAuth-specific errors
-  } else {
-    // Handle unexpected errors
-  }
-}
-```
-
-### State Validation
-
-Include a random `state` in the authorization URL; `getAuthCode()` rejects
-callbacks that don't echo it:
-
-```typescript
-const state = crypto.randomUUID();
-const authUrl = `https://example.com/authorize?state=${state}&...`;
-const result = await getAuthCode(authUrl);
-```
-
-### Token Storage
-
-Choose storage based on security requirements:
-
-- **CLI tools**: Use `inMemoryStore()` for per-session auth
-- **Desktop apps**: Use `fileStore()` for user convenience
-- **Sensitive apps**: Always use in-memory storage
-
-### Timeout Configuration
-
-Set appropriate timeouts for your use case:
-
-- **Interactive apps**: 30-60 seconds
-- **Automated tools**: 5-10 seconds
-- **First-time setup**: 2-5 minutes
+- [ADRs](/adr/) record the rationale behind these rules, in particular [ADR-006](/adr/006-mcp-sdk-owns-oauth), [ADR-007](/adr/007-redirect-uri-and-builder) and [ADR-008](/adr/008-neutral-callback-pages).

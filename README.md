@@ -4,9 +4,8 @@
 [![npm downloads](https://img.shields.io/npm/dm/oauth-callback.svg)](https://npmjs.com/package/oauth-callback)
 [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/kriasoft/oauth-callback/blob/main/LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-Ready-blue.svg)](https://www.typescriptlang.org/)
-[![Run on Replit](https://img.shields.io/badge/Run%20on-Replit-orange.svg)](https://replit.com/@kriasoft/oauth-callback)
 
-A lightweight OAuth 2.0 callback handler for Node.js, Deno, and Bun with built-in browser flow and MCP SDK integration. Perfect for CLI tools, desktop applications, and development environments that need to capture OAuth authorization codes.
+Turn a browser authorization into a validated OAuth 2.0 authorization code on a loopback redirect URI, in Node.js, Deno and Bun. For CLI tools and desktop apps, with a one-line browser authorization provider for the MCP SDK.
 
 <div align="center">
   <img src="https://raw.githubusercontent.com/kriasoft/oauth-callback/main/examples/notion.gif" alt="OAuth Callback Demo" width="100%" style="max-width: 800px; height: auto;">
@@ -14,447 +13,202 @@ A lightweight OAuth 2.0 callback handler for Node.js, Deno, and Bun with built-i
 
 ## Features
 
-- 🚀 **Multi-runtime support** - Works with Node.js 18+, Deno, and Bun
-- 🔒 **Loopback callback server** bound to `localhost` by default
-- 🤖 **MCP SDK integration** - Built-in OAuth provider for Model Context Protocol
-- ⚡ **Zero runtime dependencies** - Browser launcher bundled
-- 🎯 **TypeScript support** out of the box
-- 🛡️ **Comprehensive OAuth error handling** with detailed error classes
-- 🔄 **Automatic server cleanup** after callback
-- 💾 **Flexible token storage** - In-memory and file-based options
-- 🎪 **Clean success pages** with animated checkmark
-- 🎨 **Customizable HTML templates** with placeholder support
-- 🚦 **AbortSignal support** for programmatic cancellation
-- 📝 **Request logging and debugging** callbacks
-- 🌐 **Modern Web Standards APIs** (Request/Response/URL)
+- 🚀 **Node.js 22+, Deno 2 and Bun** — one `node:http` listener everywhere
+- 🔌 **Ephemeral loopback ports** (RFC 8252) — no port collisions, no port config
+- 🛡️ **Secure by default** — `state` on every flow, strict callback and URL validation, neutral pages with security headers
+- 🤖 **MCP SDK integration** — `browserAuth().connect(client)` handles the whole browser flow
+- ⚡ **Zero runtime dependencies** — the browser launcher is bundled and loaded lazily
+- 🎯 **Small, typed API** — one function, one error class
 
 ## Installation
 
 ```bash
-bun add oauth-callback
-```
+bun add oauth-callback   # or: npm install oauth-callback
 
-Or with npm:
-
-```bash
-npm install oauth-callback
+# for oauth-callback/mcp, also the MCP SDK (optional peer dependency)
+bun add @modelcontextprotocol/client
 ```
 
 ## Quick Start
 
-```typescript
-import { getAuthCode, OAuthError } from "oauth-callback";
-
-// Simple usage - opens the system browser
-const result = await getAuthCode(
-  "https://example.com/oauth/authorize?client_id=xxx&redirect_uri=http://localhost:3000/callback",
-);
-console.log("Authorization code:", result.code);
-
-// MCP SDK integration - use specific import
-import { browserAuth, fileStore } from "oauth-callback/mcp";
-const authProvider = browserAuth({ store: fileStore() });
-
-// Or via namespace import
-import { mcp } from "oauth-callback";
-const authProvider = mcp.browserAuth({ store: mcp.fileStore() });
-```
-
-## Usage Examples
-
-### Basic OAuth Flow
-
-```typescript
-import { getAuthCode, OAuthError } from "oauth-callback";
-
-async function authenticate() {
-  const authUrl =
-    "https://github.com/login/oauth/authorize?" +
-    new URLSearchParams({
-      client_id: "your_client_id",
-      redirect_uri: "http://localhost:3000/callback",
-      scope: "user:email",
-      state: "random_state_string",
-    });
-
-  try {
-    const result = await getAuthCode({
-      authorizationUrl: authUrl,
-      launch: true,
-    });
-    console.log("Authorization code:", result.code);
-    console.log("State:", result.state);
-
-    // Exchange code for access token
-    // ... your token exchange logic here
-  } catch (error) {
-    if (error instanceof OAuthError) {
-      console.error("OAuth error:", error.error);
-      console.error("Description:", error.error_description);
-    } else {
-      console.error("Unexpected error:", error);
-    }
-  }
-}
-```
-
-### Custom Port Configuration
-
-```typescript
+```ts
 import { getAuthCode } from "oauth-callback";
 
-const result = await getAuthCode({
-  authorizationUrl: authUrl,
-  launch: true,
-  port: 8080, // Use custom port (default: 3000)
-  timeout: 60000, // Custom timeout in ms (default: 30000)
+const { code, redirectUri } = await getAuthCode(() => {
+  const url = new URL("https://github.com/login/oauth/authorize");
+  url.searchParams.set("client_id", CLIENT_ID);
+  return url; // redirect_uri and state are appended
 });
+
+await exchangeCode({ code, redirectUri }); // your token request
 ```
 
-### MCP SDK Integration
+`getAuthCode()` binds `http://127.0.0.1:<free port>/callback`, calls your builder with that redirect URI and a fresh `state`, opens the system browser, and resolves with the code once a callback with the right `state` arrives. The listener is always closed afterwards.
 
-The `browserAuth()` function provides a drop-in OAuth provider for the Model Context Protocol SDK:
+## Usage
 
-```typescript
-import { browserAuth, inMemoryStore } from "oauth-callback/mcp";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+### Builder or prebuilt URL
 
-const serverUrl = new URL("https://mcp.notion.com/mcp");
-
-// Create MCP-compatible OAuth provider
-const authProvider = browserAuth({
-  port: 3000,
-  scope: "read write",
-  store: inMemoryStore(), // Or fileStore() for persistence
-});
-
-const client = new Client(
-  { name: "my-app", version: "1.0.0" },
-  { capabilities: {} },
+```ts
+// Builder (recommended): the library picks the port and the state
+await getAuthCode(({ redirectUri, state, signal }) =>
+  buildUrl(redirectUri, state),
 );
 
-// Connect with OAuth retry: first attempt completes OAuth and saves tokens,
-// but SDK returns before checking them. Second attempt succeeds.
-async function connectWithOAuthRetry() {
-  const transport = new StreamableHTTPClientTransport(serverUrl, {
-    authProvider,
-  });
-  try {
-    await client.connect(transport);
-  } catch (error: any) {
-    if (error.message === "Unauthorized") {
-      await client.connect(
-        new StreamableHTTPClientTransport(serverUrl, { authProvider }),
-      );
-    } else throw error;
-  }
-}
+// Prebuilt URL: listens on its redirect_uri, appends state if missing
+await getAuthCode(
+  "https://auth.example.com/authorize?client_id=app&redirect_uri=http%3A%2F%2F127.0.0.1%3A8765%2Fcallback",
+);
 
-await connectWithOAuthRetry();
+// Prebuilt URL without redirect_uri (the provider uses its registered one)
+await getAuthCode(authUrl, { redirectUri: "http://127.0.0.1:8765/callback" });
 ```
 
-#### Token Storage Options
+Use the builder for PAR/JAR: put the provided `redirectUri` and `state` into the pushed request and return the short URL. `signal` aborts with the flow, so pass it to `fetch`.
 
-```typescript
-import { browserAuth, inMemoryStore, fileStore } from "oauth-callback/mcp";
-
-// Ephemeral storage (tokens lost on restart)
-const ephemeralAuth = browserAuth({
-  store: inMemoryStore(),
-});
-
-// Persistent file storage (default: ~/.mcp/tokens.json)
-const persistentAuth = browserAuth({
-  store: fileStore(),
-  storeKey: "my-app-tokens", // Namespace for multiple apps
-});
-
-// Custom file location
-const customAuth = browserAuth({
-  store: fileStore("/path/to/tokens.json"),
-});
-```
-
-#### Pre-configured Client Credentials
-
-If you have pre-registered OAuth client credentials:
-
-```typescript
-const authProvider = browserAuth({
-  clientId: "your-client-id",
-  clientSecret: "your-client-secret",
-  scope: "read write",
-  store: fileStore(), // Persist tokens across sessions
-});
-```
-
-### Advanced Usage
-
-```typescript
-// With custom HTML templates and logging
-const result = await getAuthCode({
-  authorizationUrl: authUrl,
-  launch: true,
-  port: 3000,
-  hostname: "127.0.0.1", // Bind to specific IP
-  successHtml: "<h1>Success! You can close this window.</h1>",
-  errorHtml: "<h1>Error: {{error_description}}</h1>",
-  onRequest: (req) => {
-    console.log(`Received request: ${req.method} ${new URL(req.url).pathname}`);
+```ts
+const { code, redirectUri } = await getAuthCode(
+  async ({ redirectUri, state, signal }) => {
+    const res = await fetch(PAR_ENDPOINT, {
+      method: "POST",
+      body: new URLSearchParams({
+        client_id,
+        redirect_uri: redirectUri.href,
+        state,
+        code_challenge,
+        code_challenge_method: "S256",
+      }),
+      signal,
+    });
+    const { request_uri } = await res.json();
+    return `${AUTHORIZE}?client_id=${client_id}&request_uri=${encodeURIComponent(request_uri)}`;
   },
+);
+```
+
+### Options
+
+```ts
+await getAuthCode(build, {
+  redirectUri: "http://127.0.0.1:8765/callback", // default http://127.0.0.1:0/callback (port 0 = free port)
+  launch: (url) => console.log(`Open ${url}`), // default: system browser
+  timeout: 120_000, // ms, default 300_000
+  signal: controller.signal,
+  successHtml: "<h1>Done — back to the terminal</h1>",
+  errorHtml: "<h1>Authorization failed</h1>",
 });
+```
 
-// With cancellation support
-const controller = new AbortController();
+- **`launch`** receives the final URL. Use it for headless/SSH sessions, QR codes, webviews or tests. Its return value is ignored; if it throws or rejects, the flow fails with that error.
+- **`redirectUri`** must be `http:` on `127.0.0.1`, `[::1]` or `localhost`, without `state`, `code`, `error*` or `iss` in its query. The result's `redirectUri` is returned exactly as sent: when the authorization request carried `redirect_uri` (always with a builder), pass it verbatim to your token request.
+- **Pages** never show callback data. `successHtml`/`errorHtml` are served as-is.
 
-// Cancel after 10 seconds
-setTimeout(() => controller.abort(), 10000);
+### Errors
+
+```ts
+import { getAuthCode, OAuthCallbackError } from "oauth-callback";
 
 try {
-  const result = await getAuthCode({
-    authorizationUrl: authUrl,
-    launch: true,
-    signal: controller.signal,
-  });
+  const { code } = await getAuthCode(build, { signal });
 } catch (error) {
-  if (controller.signal.aborted) {
-    console.log("Authorization was cancelled");
+  if (error instanceof OAuthCallbackError) {
+    error.error; // e.g. "access_denied"
+    error.description; // provider text, untrusted
+  } else if (error instanceof DOMException && error.name === "TimeoutError") {
+    // no callback within `timeout`
+  } else if (signal.aborted) {
+    // cancelled: `error` is signal.reason
   }
 }
 ```
 
-## API Reference
+Invalid options and unsafe authorization URLs (`javascript:`, remote `http:`, `response_type` other than `code`, `response_mode` other than `query`, …) throw `TypeError`/`RangeError` before the browser opens (options and prebuilt URLs before anything binds).
 
-### `getAuthCode(input)`
+## MCP SDK
 
-Starts a local HTTP server to capture OAuth callbacks and launches the authorization URL via `launch` (unless `launch: false`). If the URL contains `state`, only callbacks echoing it are accepted.
+```ts
+import { Client, UnauthorizedError } from "@modelcontextprotocol/client";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { browserAuth, fileStore } from "oauth-callback/mcp";
 
-#### Parameters
+const auth = browserAuth({
+  serverUrl: "https://mcp.notion.com/mcp",
+  redirectUri: "http://127.0.0.1:8765/callback",
+  clientName: "Acme CLI",
+  store: fileStore(join(homedir(), ".config/acme/notion.json")),
+});
 
-- `input` (string | GetAuthCodeOptions): Either a string containing the OAuth authorization URL, or an options object with:
-  - `authorizationUrl` (string): The OAuth authorization URL (required)
-  - `port` (number): Port for the local server (default: 3000)
-  - `hostname` (string): Hostname to bind the server to (default: "localhost")
-  - `callbackPath` (string): URL path for the OAuth callback (default: "/callback")
-  - `timeout` (number): Timeout in milliseconds (default: 30000)
-  - `launch` (boolean | function): `true` opens the system browser, `false` if you show the URL yourself, or a custom launcher (required)
-  - `successHtml` (string): Custom HTML to display on successful authorization
-  - `errorHtml` (string): Custom HTML to display on authorization error
-  - `signal` (AbortSignal): AbortSignal for cancellation support
-  - `onRequest` (function): Callback fired when a request is received (for logging/debugging)
+const client = new Client({ name: "acme", version: "1.0.0" });
+await auth.connect(client); // opens the browser if needed; resolves once connected
+```
 
-#### Returns
+The MCP SDK does the OAuth work (discovery, dynamic client registration, PKCE, token exchange, refresh, issuer checks). `browserAuth()` adds the browser, the loopback listener and credential storage. A second run reuses stored tokens without opening the browser.
 
-Promise that resolves to:
+**Step-up** (the server asks for more scope mid-session):
 
-```typescript
-{
-  code: string;        // Authorization code
-  state?: string;      // State parameter (if provided)
-  [key: string]: string | undefined; // Additional query parameters
+```ts
+try {
+  await client.callTool(request);
+} catch (error) {
+  if (!(error instanceof UnauthorizedError)) throw error;
+  await auth.connect(client); // completes the pending authorization
+  await client.callTool(request);
 }
 ```
 
-#### Throws
+**Options:** `serverUrl`, `redirectUri` (fixed port; DCR registers it), `clientName` (for DCR) or `clientInformation` (pre-registered client with its `issuer`), `clientMetadata` (e.g. `{ scope }`), `store` (default: memory), `launch`, `timeout`, `successHtml`, `errorHtml`.
 
-- `OAuthError`: When the OAuth provider returns an error (always thrown for OAuth errors)
-- `TimeoutError`: When no valid callback arrives within `timeout`
-- `Error`: For other unexpected errors
+**Custom transports:** pass `auth` as the transport's `authProvider`; on `UnauthorizedError`, call `await auth.completeAuthorization(transport)`, close that transport, and reconnect with a new one. Only the transport that started a flow gets `UnauthorizedError`; another one gets `An MCP authorization is already in progress`. Always call `completeAuthorization()` after that `UnauthorizedError`: the flow stays pending until it does, even if it failed. Authorize your own transports one at a time; `connect()` handles concurrency for you.
 
-### `OAuthError`
+**Storage:** a `CredentialStore` is two methods over an opaque string, so a keychain store is four lines:
 
-Custom error class for OAuth-specific errors.
-
-```typescript
-class OAuthError extends Error {
-  error: string; // OAuth error code
-  error_description?: string; // Human-readable error description
-  error_uri?: string; // URI with error information
-}
+```ts
+const store: CredentialStore = {
+  load: () => keychain.get(name),
+  save: (v) =>
+    v === undefined ? keychain.delete(name) : keychain.set(name, v),
+};
 ```
 
-### `browserAuth(options)`
+Use one store per MCP server. To sign out, close the client, then clear the credentials: `await client.close(); await auth.invalidateCredentials("all")`.
 
-Available from `oauth-callback/mcp`. Creates an MCP SDK-compatible OAuth provider for browser-based flows. Handles Dynamic Client Registration (DCR) and token storage. Expired tokens trigger re-authentication.
+## Security
 
-#### Parameters
+- Every flow has a `state`; only a callback with exactly that `state` and an unambiguous `code` or `error` completes it. Anything else gets a 400 and the flow keeps waiting.
+- The listener binds loopback only and closes when the flow ends.
+- Callback pages never render callback data and send `Content-Security-Policy`, `Cache-Control: no-store`, `Referrer-Policy: no-referrer` and `X-Content-Type-Options: nosniff`.
+- `error_description` and `error_uri` are provider text: treat them as untrusted. In `/mcp`, the SDK checks `iss` before trusting error callbacks.
 
-- `options` (BrowserAuthOptions): Configuration object with:
-  - `port` (number): Port for callback server (default: 3000)
-  - `hostname` (string): Hostname to bind to (default: "localhost")
-  - `callbackPath` (string): URL path for OAuth callback (default: "/callback")
-  - `scope` (string): OAuth scopes to request
-  - `clientId` (string): Pre-registered client ID (optional)
-  - `clientSecret` (string): Pre-registered client secret (optional)
-  - `store` (TokenStore): Token storage implementation (default: inMemoryStore())
-  - `storeKey` (string): Storage key for tokens (default: "mcp-tokens")
-  - `launch` (function): Custom launcher for the auth URL (default: system browser)
-  - `authTimeout` (number): Authorization timeout in ms (default: 300000)
-  - `successHtml` (string): Custom success page HTML
-  - `errorHtml` (string): Custom error page HTML
-  - `onRequest` (function): Request logging callback
+## Runtimes
 
-#### Returns
+- **Node.js** 22+
+- **Bun** 1.2+
+- **Deno** 2: `--allow-net` (listener), `--allow-run` (default launcher), `--allow-read`/`--allow-write` (`fileStore`)
 
-OAuthClientProvider compatible with MCP SDK transports.
+These cover `getAuthCode()` and `fileStore()`, which CI smoke-tests on each minimum version. `browserAuth()` additionally depends on the runtime support of `@modelcontextprotocol/client`.
 
-### `inMemoryStore()`
-
-Available from `oauth-callback/mcp`. Creates an ephemeral in-memory token store. Tokens are lost when the process exits.
-
-#### Returns
-
-TokenStore implementation for temporary token storage.
-
-### `fileStore(filepath?)`
-
-Available from `oauth-callback/mcp`. Creates a persistent file-based token store.
-
-#### Parameters
-
-- `filepath` (string): Optional custom file path (default: `~/.mcp/tokens.json`)
-
-#### Returns
-
-TokenStore implementation for persistent token storage.
-
-## How It Works
-
-```
-┌─────────────┐     ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│  Your App   │────▶│Local Server │────▶│   Browser   │────▶│OAuth Server │
-│             │     │ :3000       │     │             │     │             │
-│ getAuthCode │     │             │◀────│  Callback   │◀────│  Redirect   │
-│     ▼       │◀────│ Returns     │     │ /callback   │     │  with code  │
-│   {code}    │     │ auth code   │     │             │     │             │
-└─────────────┘     └─────────────┘     └─────────────┘     └─────────────┘
-```
-
-1. **Server Creation** — Spins up a temporary localhost HTTP server
-2. **Browser Launch** — Opens the authorization URL (unless `launch: false`)
-3. **User Authorization** — User grants permission on the OAuth provider's page
-4. **Callback Capture** — Provider redirects to localhost with the authorization code
-5. **Cleanup** — Server closes automatically, code is returned to your app
-
-## Security Considerations
-
-- **Loopback by default** — Binds to `localhost` unless you set `hostname`; keep it on a loopback interface
-- **Ephemeral server** — Shuts down immediately after receiving the callback
-- **No credential logging** — Tokens and codes are never written to logs
-- **State parameter support** — Pass and validate state to prevent CSRF attacks
-- **Configurable timeouts** — Server auto-terminates if callback isn't received
-- **PKCE compatible** — Works with authorization servers that require PKCE
-
-## Running the Examples
-
-### Interactive Demo (No Setup Required)
-
-Try the library instantly with the built-in demo that includes a mock OAuth server:
+## Examples
 
 ```bash
-# Run the demo - no credentials needed!
-bun run example:demo
-
-# Run without opening browser (for CI/testing)
-bun run examples/demo.ts --no-browser
+bun run example:demo     # mock authorization server, no credentials needed
+bun run example:github   # GitHub OAuth App (GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET)
+bun run example:notion   # Notion MCP server with dynamic client registration
 ```
 
-The demo showcases:
+## Upgrading from v2
 
-- Dynamic client registration (simplified OAuth 2.0 DCR)
-- Complete authorization flow with mock provider
-- Multiple scenarios (success, access denied, invalid scope)
-- Custom HTML templates for success/error pages
-- Token exchange and API usage simulation
-
-### Real OAuth Examples
-
-#### GitHub OAuth
-
-For testing with GitHub OAuth:
-
-```bash
-# Set up GitHub OAuth App credentials
-export GITHUB_CLIENT_ID="your_client_id"
-export GITHUB_CLIENT_SECRET="your_client_secret"
-
-# Run the GitHub example
-bun run example:github
-```
-
-This example demonstrates:
-
-- Setting up OAuth with GitHub
-- Handling the authorization callback
-- Exchanging the code for an access token
-- Using the token to fetch user information
-
-#### Notion MCP with Dynamic Client Registration
-
-For testing with Notion's Model Context Protocol server:
-
-```bash
-# No credentials needed - uses Dynamic Client Registration!
-bun run example:notion
-```
-
-This example demonstrates:
-
-- Dynamic Client Registration (OAuth 2.0 DCR) - no pre-configured client ID/secret needed
-- Integration with Model Context Protocol (MCP) servers
-- Automatic client registration with the authorization server
-- Using `browserAuth()` provider with MCP SDK's `StreamableHTTPClientTransport`
-- Token persistence with `inMemoryStore()` for ephemeral sessions
+See the [migration guide](docs/migration-v3.md).
 
 ## Development
 
 ```bash
-# Install dependencies
 bun install
-
-# Run tests
-bun test
-
-# Build
+bun run test            # unit + MCP e2e tests
+bun run test:runtimes   # smoke test of the build on Node, Deno and Bun
 bun run build
-
-# Run documentation locally
-bun run docs:dev        # Start VitePress dev server at http://localhost:5173
-
-# Run examples
-bun run example:demo    # Interactive demo
-bun run example:github  # GitHub OAuth example
-bun run example:notion  # Notion MCP example with Dynamic Client Registration
+bun run docs:dev
 ```
-
-## Requirements
-
-- Node.js 18+ (for native Request/Response support), Deno, or Bun 1.0+
-- A registered OAuth application with a provider
-- Redirect URI configured as `http://localhost:[port]/callback`
-
-## Common Issues
-
-### Port Already in Use
-
-If port 3000 is already in use, specify a different port:
-
-```typescript
-const result = await getAuthCode({
-  authorizationUrl: authUrl,
-  launch: true,
-  port: 8080,
-});
-```
-
-### Firewall Warnings
-
-On first run, your OS may show a firewall warning. Allow the connection for localhost only.
-
-### Browser Doesn't Open
-
-If the browser doesn't open automatically, manually navigate to the authorization URL.
 
 ## Contributing
 

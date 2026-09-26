@@ -31,10 +31,41 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-bun-
       - run: bun install --frozen-lockfile
-      - run: bun run build:templates
-      - run: bun test
+      - run: bun run test
       - run: bun run typecheck
         if: matrix.os == 'ubuntu-latest'
+
+  # The built package on each runtime's minimum supported version, with the documented
+  # permissions (Deno's env access is for the smoke test's own tmpdir()).
+  runtimes:
+    name: Smoke (${{ matrix.runtime }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        runtime: [node, deno, bun]
+
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - uses: actions/setup-node@v7
+        if: matrix.runtime == 'node'
+        with:
+          node-version: "22"
+      - uses: denoland/setup-deno@v2
+        if: matrix.runtime == 'deno'
+        with:
+          deno-version: v2.0.0
+      - run: bun install --frozen-lockfile
+      - run: bun run build
+      - run: node test/runtime-smoke.mjs
+        if: matrix.runtime == 'node'
+      - run: deno run --allow-net --allow-read --allow-write --allow-env=TMPDIR,TMP,TEMP test/runtime-smoke.mjs
+        if: matrix.runtime == 'deno'
+      - run: npx -y bun@1.2.0 test/runtime-smoke.mjs
+        if: matrix.runtime == 'bun'
 
   build:
     name: Build & Validate
@@ -55,7 +86,6 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun run format:check
       - run: bun run typecheck
-      - run: bun run build:templates
       - run: bun run build
       - run: bun run lint:package
 
@@ -71,16 +101,9 @@ jobs:
           fi
           echo "✅ Build output verified"
 
-      - uses: actions/upload-artifact@v7
-        with:
-          name: dist
-          path: dist/
-          retention-days: 1
-
   validate-examples:
     name: Validate Examples
     runs-on: ubuntu-latest
-    needs: build
 
     steps:
       - uses: actions/checkout@v7
@@ -94,10 +117,6 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-bun-
       - run: bun install --frozen-lockfile
-      - uses: actions/download-artifact@v8
-        with:
-          name: dist
-          path: dist/
       - run: bun run examples/demo.ts --no-browser
         timeout-minutes: 1
 

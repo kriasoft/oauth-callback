@@ -1,731 +1,194 @@
 ---
 title: browserAuth
-description: MCP SDK-compatible OAuth provider for browser-based authentication flows with Dynamic Client Registration support.
+description: Browser authorization provider for the MCP SDK, with connect(client), step-up handling and pluggable credential storage.
 ---
 
 # browserAuth
 
-The `browserAuth` function creates an OAuth provider that integrates seamlessly with the Model Context Protocol (MCP) SDK. It handles the entire OAuth flow including Dynamic Client Registration and token storage through a browser-based authorization flow. Expired tokens trigger re-authentication; refresh tokens are not used.
+Creates an MCP SDK `OAuthClientProvider` that authorizes in the system browser and persists credentials in a [`CredentialStore`](/api/credential-store). `connect(client)` connects an MCP client over Streamable HTTP, running the browser flow when the server requires it.
 
-## Function Signature
+The MCP SDK owns the OAuth protocol: discovery, Dynamic Client Registration, PKCE, token exchange, refresh and `iss` checks. `browserAuth()` owns the browser, the loopback listener, `state`, flow ownership and credential persistence.
 
-```typescript
-function browserAuth(options?: BrowserAuthOptions): OAuthClientProvider;
+## Signature
+
+```ts
+import { browserAuth } from "oauth-callback/mcp";
+
+function browserAuth(options: BrowserAuthOptions): BrowserAuth;
 ```
 
-## Parameters
+Requires `@modelcontextprotocol/client` 2.1+.
 
-### BrowserAuthOptions
+## Options
 
-| Property        | Type                                    | Default           | Description                                                                                                                                   |
-| --------------- | --------------------------------------- | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `clientId`      | `string`                                | _none_            | Pre-registered OAuth client ID                                                                                                                |
-| `clientSecret`  | `string`                                | _none_            | Pre-registered OAuth client secret                                                                                                            |
-| `scope`         | `string`                                | _none_            | OAuth scopes to request. When omitted, the auth server uses its default scope.                                                                |
-| `port`          | `number`                                | `3000`            | Port for local callback server                                                                                                                |
-| `hostname`      | `string`                                | `"localhost"`     | Hostname to bind server to                                                                                                                    |
-| `callbackPath`  | `string`                                | `"/callback"`     | URL path for OAuth callback                                                                                                                   |
-| `store`         | `TokenStore`                            | `inMemoryStore()` | Token storage implementation                                                                                                                  |
-| `storeKey`      | `string`                                | `"mcp-tokens"`    | Storage key for token isolation                                                                                                               |
-| `launch`        | `(authorizationUrl: string) => unknown` | _system browser_  | Custom launcher for the auth URL                                                                                                              |
-| `authTimeout`   | `number`                                | `300000`          | Auth timeout in ms (5 min)                                                                                                                    |
-| `successHtml`   | `string`                                | _built-in_        | Custom success page HTML                                                                                                                      |
-| `errorHtml`     | `string`                                | _built-in_        | Custom error page HTML                                                                                                                        |
-| `onRequest`     | `(req: Request) => void`                | _none_            | Request logging callback                                                                                                                      |
-| `authServerUrl` | `string \| URL`                         | _auto_            | Base URL for OAuth metadata discovery. Defaults to the authorization URL's origin. Set this when the token endpoint is on a different origin. |
+| Option              | Type                                                | Default        | Description                                                                                                                                                                                 |
+| ------------------- | --------------------------------------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `serverUrl`         | `string \| URL`                                     | required       | The one MCP server this provider and its store serve (`https:`, or `http:` on a loopback host)                                                                                              |
+| `redirectUri`       | `string \| URL`                                     | required       | Fixed loopback redirect URI, e.g. `http://127.0.0.1:8765/callback`. No port 0                                                                                                               |
+| `clientName`        | `string`                                            | —              | Client name for Dynamic Client Registration. Required unless `clientInformation` is set                                                                                                     |
+| `clientInformation` | `StoredOAuthClientInformation & { issuer: string }` | —              | Pre-registered client; disables DCR                                                                                                                                                         |
+| `clientMetadata`    | `Partial<OAuthClientMetadata>`                      | —              | Extra DCR metadata, e.g. `scope` or `grant_types`                                                                                                                                           |
+| `store`             | `CredentialStore`                                   | memory         | Credential persistence                                                                                                                                                                      |
+| `launch`            | `(url: URL) => unknown`                             | system browser | Opens the URL. Fulfillment is ignored; a throw or rejection fails the flow                                                                                                                  |
+| `timeout`           | `number`                                            | `300000`       | Milliseconds for one authorization, integer in [1, 2³¹−1]. `connect()` aborts its OAuth requests at the deadline; `completeAuthorization()` can't interrupt your transport's `finishAuth()` |
+| `successHtml`       | `string`                                            | neutral page   | Static HTML after a successful callback                                                                                                                                                     |
+| `errorHtml`         | `string`                                            | neutral page   | Static HTML after an error callback                                                                                                                                                         |
 
-## Return Value
+Notes:
 
-Returns an `OAuthClientProvider` instance that implements the MCP SDK authentication interface:
+- **`redirectUri`** is registered with the authorization server, so it must be fixed. It follows the same loopback rules as [`getAuthCode()`](/api/get-auth-code#options).
+- **`clientMetadata`** can't override `client_name`, `redirect_uris`, `response_types` or `application_type`. The SDK derives the other DCR defaults; requested scopes from the server's challenge and metadata take priority over `scope`.
+- **`clientInformation.issuer`** is the `authorization_servers` entry of the MCP server's protected-resource metadata. A static client is never re-registered, and the SDK refuses a different issuer.
+- **Refresh tokens.** To opt into `offline_access`, declare `clientMetadata: { grant_types: ["authorization_code", "refresh_token"] }`.
 
-```typescript
-interface OAuthClientProvider {
-  // Completes full OAuth flow: browser → callback → token exchange → persist
-  redirectToAuthorization(authorizationUrl: URL): Promise<void>;
+Invalid options throw `TypeError` (or `RangeError` for `timeout`) immediately.
 
-  // Token storage
-  tokens(): Promise<OAuthTokens | undefined>;
-  saveTokens(tokens: OAuthTokens): Promise<void>;
+## Return value
 
-  // Dynamic Client Registration support
-  clientInformation(): Promise<OAuthClientInformation | undefined>;
-  saveClientInformation(info: OAuthClientInformationFull): Promise<void>;
+```ts
+interface BrowserAuth extends OAuthClientProvider {
+  connect(
+    client: Client,
+    options?: ConnectOptions & {
+      transportOptions?: Omit<
+        StreamableHTTPClientTransportOptions,
+        "authProvider"
+      >;
+    },
+  ): Promise<void>;
 
-  // PKCE support
-  codeVerifier(): Promise<string>;
-  saveCodeVerifier(verifier: string): Promise<void>;
-
-  // State management
-  state(): Promise<string>;
-  invalidateCredentials(
-    scope: "all" | "client" | "tokens" | "verifier",
+  completeAuthorization(
+    transport: { finishAuth(params: URLSearchParams): Promise<void> },
+    options?: { signal?: AbortSignal },
   ): Promise<void>;
 }
 ```
 
-## Basic Usage
+### `connect(client, options?)`
 
-### Simple MCP Client
+Connects `client` to `serverUrl` over a Streamable HTTP transport it creates, completing browser authorization if required. Resolves once `client` is connected.
 
-The simplest usage with default settings:
+- Reuses stored tokens; the browser opens only when the SDK needs a new authorization.
+- For a client it already connected, it returns without reconnecting, after completing any authorization pending on that connection (step-up). Calling it again on `UnauthorizedError` is safe.
+- Throws if `client` is connected over a transport it didn't create. It never closes such a transport; use `completeAuthorization()` there.
+- `options.signal` cancels the call, including waiting for the browser; `transportOptions` (e.g. `requestInit`, `fetch`) configure the transport.
+- Calls on one provider run one at a time.
 
-```typescript
-import { browserAuth } from "oauth-callback/mcp";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+### `completeAuthorization(transport, options?)`
 
-// Create OAuth provider - opens the system browser
-const authProvider = browserAuth();
+Low-level, for transports you create. After the SDK throws `UnauthorizedError`, waits for the pending callback and exchanges it on `transport`, which must be the transport that received the 401/403. Then close it and reconnect with a new transport. A flow on your own transports stays pending until `completeAuthorization()` consumes it, even after its launcher failed or it timed out (it then rejects with that error), so always call it after `UnauthorizedError`. Run OAuth work on your own transports one attempt at a time: the provider can't tell their concurrent attempts apart, so its sign-out and flow-ownership guarantees assume serialized use (`connect()` has no such limit). Give that transport a bounded `fetch`, since the library can't cancel a request it didn't start.
 
-// Use with MCP transport
-const transport = new StreamableHTTPClientTransport(
-  new URL("https://mcp.example.com"),
-  { authProvider },
-);
+### Provider hooks
 
-const client = new Client(
-  { name: "my-app", version: "1.0.0" },
-  { capabilities: {} },
-);
+The `OAuthClientProvider` members (`redirectUrl`, `clientMetadata`, `state()`, `tokens()`, `saveTokens()`, `redirectToAuthorization()`, `invalidateCredentials()`, …) are called by the SDK. Of these, only `invalidateCredentials("all")` is useful to call yourself: it clears the stored credentials. It doesn't close a live connection, so to sign out call `await client.close()` first.
 
-await client.connect(transport);
-```
+## Examples
 
-### With Token Persistence
+### Dynamic Client Registration
 
-Store tokens across sessions:
-
-```typescript
+```ts
+import { Client } from "@modelcontextprotocol/client";
 import { browserAuth, fileStore } from "oauth-callback/mcp";
+import { homedir } from "node:os";
+import { join } from "node:path";
 
-const authProvider = browserAuth({
-  store: fileStore(), // Persists to ~/.mcp/tokens.json
-  scope: "read write",
+const auth = browserAuth({
+  serverUrl: "https://mcp.notion.com/mcp",
+  redirectUri: "http://127.0.0.1:8765/callback",
+  clientName: "Acme CLI",
+  store: fileStore(join(homedir(), ".config/acme/notion.json")),
 });
+
+const client = new Client({ name: "acme", version: "1.0.0" });
+await auth.connect(client);
 ```
 
-## Advanced Usage
+### Pre-registered client
 
-### Pre-Registered OAuth Clients
-
-If you have pre-registered OAuth credentials:
-
-```typescript
-const authProvider = browserAuth({
-  clientId: process.env.OAUTH_CLIENT_ID,
-  clientSecret: process.env.OAUTH_CLIENT_SECRET,
-  scope: "read write admin",
-  store: fileStore(),
-});
-```
-
-### Custom Storage Location
-
-Store tokens in a specific location:
-
-```typescript
-import { browserAuth, fileStore } from "oauth-callback/mcp";
-
-const authProvider = browserAuth({
-  store: fileStore("/path/to/my-tokens.json"),
-  storeKey: "my-app-production", // Namespace for multiple environments
-});
-```
-
-### Custom Port and Callback Path
-
-Configure the callback server:
-
-```typescript
-const authProvider = browserAuth({
-  port: 8080,
-  hostname: "127.0.0.1",
-  callbackPath: "/oauth/callback",
-  store: fileStore(),
-});
-```
-
-::: warning Redirect URI Configuration
-Ensure your OAuth app's redirect URI matches your configuration:
-
-- Configuration: `port: 8080`, `callbackPath: "/oauth/callback"`
-- Redirect URI: `http://localhost:8080/oauth/callback`
-  :::
-
-### Custom HTML Pages
-
-Provide branded callback pages:
-
-```typescript
-const authProvider = browserAuth({
-  successHtml: `
-    <!DOCTYPE html>
-    <html>
-      <head>
-        <title>Success!</title>
-        <style>
-          body {
-            font-family: -apple-system, system-ui, sans-serif;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            margin: 0;
-          }
-          .container {
-            text-align: center;
-            padding: 2rem;
-          }
-          h1 { font-size: 3rem; margin-bottom: 1rem; }
-          p { font-size: 1.2rem; opacity: 0.9; }
-        </style>
-      </head>
-      <body>
-        <div class="container">
-          <h1>🎉 Success!</h1>
-          <p>Authorization complete. You can close this window.</p>
-        </div>
-      </body>
-    </html>
-  `,
-  errorHtml: `
-    <!DOCTYPE html>
-    <html>
-      <body>
-        <h1>Authorization Failed</h1>
-        <p>Error: {{error}}</p>
-        <p>{{error_description}}</p>
-      </body>
-    </html>
-  `,
-});
-```
-
-### Request Logging
-
-Monitor OAuth flow for debugging:
-
-```typescript
-const authProvider = browserAuth({
-  onRequest: (req) => {
-    const url = new URL(req.url);
-    console.log(`[OAuth] ${req.method} ${url.pathname}`);
+```ts
+const auth = browserAuth({
+  serverUrl: "https://mcp.example.com/mcp",
+  redirectUri: "http://127.0.0.1:8765/callback",
+  clientInformation: {
+    client_id: process.env.MCP_CLIENT_ID!,
+    client_secret: process.env.MCP_CLIENT_SECRET,
+    issuer: "https://auth.example.com",
   },
-  store: fileStore(),
+  clientMetadata: { scope: "read write" },
 });
 ```
 
-## Dynamic Client Registration
+### Step-up authorization
 
-OAuth Callback supports [RFC 7591](https://www.rfc-editor.org/rfc/rfc7591.html) Dynamic Client Registration, allowing automatic OAuth client registration:
+When the server answers a request with 403 `insufficient_scope`, the SDK starts a new authorization and the request fails with `UnauthorizedError`. `connect()` completes it on the same connection:
 
-### How It Works
+```ts
+import { UnauthorizedError } from "@modelcontextprotocol/client";
 
-```mermaid
-sequenceDiagram
-    participant App
-    participant browserAuth
-    participant MCP Server
-    participant Auth Server
-
-    App->>browserAuth: Create provider (no client_id)
-    App->>MCP Server: Connect via transport
-    MCP Server->>App: Requires authentication
-    App->>browserAuth: Initiate OAuth
-    browserAuth->>Auth Server: POST /register (DCR)
-    Auth Server->>browserAuth: Return client_id, client_secret
-    browserAuth->>browserAuth: Store credentials
-    browserAuth->>Auth Server: Start OAuth flow
-    Auth Server->>browserAuth: Return authorization code
-    browserAuth->>App: Authentication complete
-```
-
-### DCR Example
-
-No pre-registration needed:
-
-```typescript
-// No clientId or clientSecret required!
-const authProvider = browserAuth({
-  scope: "read write",
-  store: fileStore(), // Persist dynamically registered client
-});
-
-// The provider will automatically:
-// 1. Register a new OAuth client on first use
-// 2. Store the client credentials
-// 3. Reuse them for future sessions
-```
-
-### Benefits of DCR
-
-- **Zero Configuration**: Users don't need to manually register OAuth apps
-- **Automatic Setup**: Client registration happens transparently
-- **Credential Persistence**: Registered clients are reused across sessions
-- **Simplified Distribution**: Ship MCP clients without OAuth setup instructions
-
-## Token Storage
-
-### Storage Interfaces
-
-OAuth Callback provides two storage interfaces:
-
-#### TokenStore (Basic)
-
-```typescript
-interface TokenStore {
-  get(key: string): Promise<Tokens | null>;
-  set(key: string, tokens: Tokens): Promise<void>;
-  delete(key: string): Promise<void>;
+try {
+  await client.callTool(request);
+} catch (error) {
+  if (!(error instanceof UnauthorizedError)) throw error;
+  await auth.connect(client); // completes the pending authorization
+  await client.callTool(request);
 }
 ```
 
-#### OAuthStore (Extended)
+### Custom transport
 
-```typescript
-interface OAuthStore extends TokenStore {
-  getClient(key: string): Promise<ClientInfo | null>;
-  setClient(key: string, client: ClientInfo): Promise<void>;
-  deleteClient(key: string): Promise<void>;
-  getCodeVerifier(key: string): Promise<string | null>;
-  setCodeVerifier(key: string, verifier: string): Promise<void>;
-  deleteCodeVerifier(key: string): Promise<void>;
-}
-```
+```ts
+import {
+  StreamableHTTPClientTransport,
+  UnauthorizedError,
+} from "@modelcontextprotocol/client";
 
-### Built-in Implementations
-
-#### In-Memory Store
-
-Ephemeral storage (tokens lost on restart):
-
-```typescript
-import { browserAuth, inMemoryStore } from "oauth-callback/mcp";
-
-const authProvider = browserAuth({
-  store: inMemoryStore(),
+const serverUrl = new URL("https://mcp.example.com/mcp");
+const transport = new StreamableHTTPClientTransport(serverUrl, {
+  authProvider: auth,
 });
-```
-
-**Use cases:**
-
-- Development and testing
-- Short-lived CLI sessions
-- Maximum security (no persistence)
-
-#### File Store
-
-Persistent storage to JSON file:
-
-```typescript
-import { browserAuth, fileStore } from "oauth-callback/mcp";
-
-// Default location: ~/.mcp/tokens.json
-const authProvider = browserAuth({
-  store: fileStore(),
-});
-
-// Custom location
-const customAuth = browserAuth({
-  store: fileStore("/path/to/tokens.json"),
-});
-```
-
-**Use cases:**
-
-- Desktop applications
-- Long-running services
-- Multi-session authentication
-
-### Custom Storage Implementation
-
-Implement your own storage backend:
-
-```typescript
-import { TokenStore, Tokens } from "oauth-callback/mcp";
-
-class RedisStore implements TokenStore {
-  constructor(private redis: RedisClient) {}
-
-  async get(key: string): Promise<Tokens | null> {
-    const data = await this.redis.get(key);
-    return data ? JSON.parse(data) : null;
-  }
-
-  async set(key: string, tokens: Tokens): Promise<void> {
-    await this.redis.set(key, JSON.stringify(tokens));
-  }
-
-  async delete(key: string): Promise<void> {
-    await this.redis.del(key);
-  }
-}
-
-// Use custom store
-const authProvider = browserAuth({
-  store: new RedisStore(redisClient),
-});
-```
-
-## Security Features
-
-### PKCE (Proof Key for Code Exchange)
-
-PKCE is always enabled for enhanced security. The MCP SDK handles PKCE automatically through the provider's `saveCodeVerifier()` and `codeVerifier()` methods.
-
-PKCE prevents authorization code interception attacks by:
-
-1. Generating a cryptographic code verifier
-2. Sending a hashed challenge with the authorization request
-3. Proving possession of the verifier during token exchange
-
-### State Parameter
-
-The `state()` method generates secure random values when called by the MCP SDK. State validation in `browserAuth` compares the callback's state against the state parameter in the authorization URL that was passed to `redirectToAuthorization()`. This means validation works regardless of whether `state()` was used - it validates whatever state is present in the URL.
-
-For localhost flows, [RFC 8252](https://www.rfc-editor.org/rfc/rfc8252) considers loopback interface binding sufficient for security. State validation adds defense-in-depth.
-
-### Token Expiry Management
-
-Tokens are tracked with expiry times. The provider returns `undefined` from `tokens()` 60 seconds before actual expiry to prevent mid-request failures. This triggers re-authentication before tokens become invalid:
-
-```typescript
-// The provider:
-// 1. Returns undefined 60s before token expiry
-// 2. SDK triggers re-auth when tokens() returns undefined
-// 3. Requests never fail due to mid-flight token expiry
-```
-
-### Secure Storage
-
-File storage uses restrictive permissions:
-
-```typescript
-// Files are created with mode 0600 (owner read/write only)
-const authProvider = browserAuth({
-  store: fileStore(), // Secure file permissions
-});
-```
-
-## Error Handling
-
-### OAuth Errors
-
-The provider handles OAuth-specific errors:
-
-```typescript
 try {
   await client.connect(transport);
 } catch (error) {
-  if (error.message.includes("access_denied")) {
-    console.log("User cancelled authorization");
-  } else if (error.message.includes("invalid_scope")) {
-    console.log("Requested scope not available");
-  } else {
-    console.error("Connection failed:", error);
-  }
-}
-```
-
-### Timeout Handling
-
-Configure timeout for different scenarios:
-
-```typescript
-const authProvider = browserAuth({
-  authTimeout: 600000, // 10 minutes for first-time setup
-});
-```
-
-## Complete Examples
-
-### Notion MCP Integration
-
-Full example with Dynamic Client Registration:
-
-```typescript
-import { browserAuth, fileStore } from "oauth-callback/mcp";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-
-async function connectToNotion() {
-  // No client credentials needed - uses DCR!
-  const authProvider = browserAuth({
-    store: fileStore(), // Persist tokens and client registration
-    scope: "read write",
-    onRequest: (req) => {
-      console.log(`[Notion OAuth] ${new URL(req.url).pathname}`);
-    },
-  });
-
-  const transport = new StreamableHTTPClientTransport(
-    new URL("https://mcp.notion.com/mcp"),
-    { authProvider },
-  );
-
-  const client = new Client(
-    { name: "notion-client", version: "1.0.0" },
-    { capabilities: {} },
-  );
-
+  if (!(error instanceof UnauthorizedError)) throw error;
   try {
-    await client.connect(transport);
-    console.log("Connected to Notion MCP!");
-
-    // List available tools
-    const tools = await client.listTools();
-    console.log("Available tools:", tools);
-
-    // Use a tool
-    const result = await client.callTool("search", {
-      query: "meeting notes",
-    });
-    console.log("Search results:", result);
-  } catch (error) {
-    console.error("Failed to connect:", error);
+    await auth.completeAuthorization(transport);
   } finally {
-    await client.close();
+    await transport.close(); // client.connect() won't close the old transport
   }
+  await client.connect(
+    new StreamableHTTPClientTransport(serverUrl, { authProvider: auth }),
+  );
 }
-
-connectToNotion();
 ```
 
-### Multi-Environment Configuration
+### Headless launch
 
-Support development, staging, and production:
-
-```typescript
-import { browserAuth, fileStore, inMemoryStore } from "oauth-callback/mcp";
-
-function createAuthProvider(environment: "dev" | "staging" | "prod") {
-  const configs = {
-    dev: {
-      port: 3000,
-      store: inMemoryStore(), // No persistence in dev
-      authTimeout: 60000,
-      onRequest: (req: Request) =>
-        console.log("[DEV]", new URL(req.url).pathname),
-    },
-    staging: {
-      port: 3001,
-      store: fileStore("~/.mcp/staging-tokens.json"),
-      storeKey: "staging",
-      authTimeout: 120000,
-    },
-    prod: {
-      port: 3002,
-      store: fileStore("~/.mcp/prod-tokens.json"),
-      storeKey: "production",
-      authTimeout: 300000,
-      clientId: process.env.PROD_CLIENT_ID,
-      clientSecret: process.env.PROD_CLIENT_SECRET,
-    },
-  };
-
-  return browserAuth(configs[environment]);
-}
-
-// Use appropriate environment
-const authProvider = createAuthProvider(
-  process.env.NODE_ENV as "dev" | "staging" | "prod",
-);
-```
-
-### Handling Expired Tokens
-
-The provider does not use refresh tokens. When tokens expire, re-authentication is triggered automatically by returning `undefined` from `tokens()`. The MCP SDK handles this transparently.
-
-For explicit control over re-authentication:
-
-```typescript
-// Force re-authentication by clearing tokens
-await authProvider.invalidateCredentials("tokens");
-```
-
-## Testing
-
-### Unit Testing
-
-Mock the OAuth provider for tests:
-
-```typescript
-import { vi, describe, it, expect } from "vitest";
-
-// Create mock provider
-const mockAuthProvider = {
-  redirectToAuthorization: vi.fn(),
-  tokens: vi.fn().mockResolvedValue({
-    access_token: "test_token",
-    token_type: "Bearer",
-  }),
-  saveTokens: vi.fn(),
-  clientInformation: vi.fn(),
-  saveClientInformation: vi.fn(),
-  state: vi.fn().mockResolvedValue("test_state"),
-  codeVerifier: vi.fn().mockResolvedValue("test_verifier"),
-  saveCodeVerifier: vi.fn(),
-  invalidateCredentials: vi.fn(),
-};
-
-describe("MCP Client", () => {
-  it("should authenticate with OAuth", async () => {
-    const transport = new StreamableHTTPClientTransport(
-      new URL("https://test.example.com"),
-      { authProvider: mockAuthProvider },
-    );
-
-    const client = new Client(
-      { name: "test", version: "1.0.0" },
-      { capabilities: {} },
-    );
-
-    await client.connect(transport);
-
-    expect(mockAuthProvider.tokens).toHaveBeenCalled();
-  });
+```ts
+const auth = browserAuth({
+  serverUrl,
+  redirectUri: "http://127.0.0.1:8765/callback",
+  clientName: "Acme CLI",
+  launch: (url) => console.log(`Open this URL to authorize:\n${url}`),
 });
 ```
 
-### Integration Testing
+### Sign out
 
-Test with a mock OAuth server:
-
-```typescript
-import { browserAuth, inMemoryStore } from "oauth-callback/mcp";
-import { createMockOAuthServer } from "./test-utils";
-
-describe("OAuth Flow Integration", () => {
-  let mockServer: MockOAuthServer;
-
-  beforeAll(async () => {
-    mockServer = createMockOAuthServer();
-    await mockServer.start();
-  });
-
-  afterAll(async () => {
-    await mockServer.stop();
-  });
-
-  it("should complete full OAuth flow", async () => {
-    const authProvider = browserAuth({
-      port: 3001,
-      launch: fetch, // Follows the mock redirect to the callback
-      store: inMemoryStore(),
-    });
-
-    // Simulate OAuth flow
-    await authProvider.redirectToAuthorization(
-      new URL(`http://localhost:${mockServer.port}/authorize`),
-    );
-
-    const tokens = await authProvider.tokens();
-    expect(tokens?.access_token).toBeDefined();
-  });
-});
+```ts
+await client.close(); // clearing credentials doesn't close a live connection
+await auth.invalidateCredentials("all");
 ```
 
-## Troubleshooting
+## Behavior
 
-### Common Issues
+- **One flow at a time.** A provider runs one interactive authorization at a time, from the SDK's `state()` call until the token exchange settles. Overlapping attempts fail fast and are never merged: with `UnauthorizedError` on transports `connect()` created (so `connect()` can complete the flow, then retry), with a plain `Error` on transports you created (only the transport that started a flow may complete it).
+- **Timeout.** `timeout` bounds one authorization, including the token exchange. On transports created by `connect()`, a hung token endpoint is aborted too.
+- **Client identity.** While a flow is active, registration can't replace the client. A stored DCR client registered for a different redirect URI is re-registered.
+- **Callbacks.** Same validation, pages and security headers as [`getAuthCode()`](/core-concepts#state-and-callback-validation). Error callbacks go to the SDK, which checks `iss` before trusting them.
+- **Storage.** Use one store per MCP server. See [CredentialStore](/api/credential-store).
 
-::: details Port Already in Use
+## Related
 
-```typescript
-// Use a different port
-const authProvider = browserAuth({
-  port: 8080, // Try alternative port
-});
-```
-
-:::
-
-::: details Tokens Not Persisting
-
-```typescript
-// Ensure you're using file store, not in-memory
-const authProvider = browserAuth({
-  store: fileStore(), // ✅ Persistent
-  // store: inMemoryStore() // ❌ Lost on restart
-});
-```
-
-:::
-
-::: details DCR Not Working
-Some servers may not support Dynamic Client Registration:
-
-```typescript
-// Fallback to pre-registered credentials
-const authProvider = browserAuth({
-  clientId: "your-client-id",
-  clientSecret: "your-client-secret",
-});
-```
-
-:::
-
-::: details Browser Not Opening
-
-```typescript
-// Print the URL so the user can open it manually
-const authProvider = browserAuth({
-  launch: (authorizationUrl) => console.log(`Open: ${authorizationUrl}`),
-});
-```
-
-:::
-
-## API Compatibility
-
-The `browserAuth` provider implements the MCP SDK's `OAuthClientProvider` interface:
-
-| Method                    | Status               | Notes                                                                     |
-| ------------------------- | -------------------- | ------------------------------------------------------------------------- |
-| `redirectToAuthorization` | ✅ Fully supported   | Completes full OAuth flow (browser → callback → token exchange → persist) |
-| `tokens`                  | ✅ Fully supported   | Returns current tokens                                                    |
-| `saveTokens`              | ✅ Fully supported   | Persists to storage                                                       |
-| `clientInformation`       | ✅ Fully supported   | Returns client credentials                                                |
-| `saveClientInformation`   | ✅ Fully supported   | Stores DCR results                                                        |
-| `state`                   | ✅ Fully supported   | Generates secure state                                                    |
-| `codeVerifier`            | ✅ Fully supported   | PKCE verifier                                                             |
-| `saveCodeVerifier`        | ✅ Fully supported   | Stores PKCE verifier                                                      |
-| `invalidateCredentials`   | ✅ Fully supported   | Clears stored data                                                        |
-| `validateResourceURL`     | ✅ Returns undefined | Not applicable                                                            |
-
-## Migration Guide
-
-### From Manual OAuth to browserAuth
-
-```typescript
-// Before: Manual OAuth implementation
-const code = await getAuthCode(authUrl);
-const tokens = await exchangeCodeForTokens(code);
-// Manual token storage and refresh...
-
-// After: Using browserAuth
-const authProvider = browserAuth({
-  store: fileStore(),
-});
-// Automatic handling of entire OAuth flow!
-```
-
-### From In-Memory to Persistent Storage
-
-```typescript
-// Before: Tokens lost on restart
-const authProvider = browserAuth();
-
-// After: Tokens persist across sessions
-const authProvider = browserAuth({
-  store: fileStore(),
-});
-```
-
-## Related APIs
-
-- [`getAuthCode`](/api/get-auth-code) - Low-level OAuth code capture
-- [`TokenStore`](/api/storage-providers) - Storage interface documentation
-- [`OAuthError`](/api/oauth-error) - OAuth error handling
+- [CredentialStore](/api/credential-store)
+- [Notion MCP example](/examples/notion)
+- [Core Concepts: MCP authorization](/core-concepts#mcp-authorization)

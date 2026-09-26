@@ -1,7 +1,7 @@
 {
   "name": "oauth-callback",
-  "version": "2.2.1",
-  "description": "Lightweight OAuth 2.0 callback handler for Node.js, Deno, and Bun with built-in browser flow and MCP SDK integration",
+  "version": "3.0.0",
+  "description": "Capture OAuth 2.0 authorization codes on a loopback redirect URI in Node.js, Deno and Bun, with a browser authorization provider for the MCP SDK",
   "keywords": [
     "oauth",
     "oauth2",
@@ -54,7 +54,7 @@
   "type": "module",
   "sideEffects": false,
   "engines": {
-    "node": ">=18.2"
+    "node": ">=22"
   },
   "exports": {
     ".": {
@@ -62,25 +62,21 @@
       "default": "./dist/index.js"
     },
     "./mcp": {
-      "types": "./dist/mcp.d.ts",
-      "default": "./dist/mcp.js"
+      "types": "./dist/mcp/index.d.ts",
+      "default": "./dist/mcp/index.js"
     },
     "./package.json": "./package.json"
   },
   "peerDependencies": {
-    "@modelcontextprotocol/sdk": ">=1.30.1 <2",
-    "typescript": ">=5 <6"
+    "@modelcontextprotocol/client": "^2.1.0"
   },
   "peerDependenciesMeta": {
-    "@modelcontextprotocol/sdk": {
-      "optional": true
-    },
-    "typescript": {
+    "@modelcontextprotocol/client": {
       "optional": true
     }
   },
   "devDependencies": {
-    "@modelcontextprotocol/sdk": "^1.30.1",
+    "@modelcontextprotocol/client": "^2.1",
     "@types/bun": "^1.3.6",
     "@types/deno": "^2.5.0",
     "@types/node": "^25.0.10",
@@ -103,24 +99,22 @@
     "endOfLine": "lf"
   },
   "scripts": {
-    "build:templates": "bun run templates/build.ts",
-    "build": "bun run build:templates && bun build ./src/index.ts --outdir=./dist --target=node && bun build ./src/mcp.ts --outdir=./dist --target=node --external=@modelcontextprotocol/sdk && tsc --declaration --emitDeclarationOnly --outDir ./dist",
+    "build": "bun run scripts/build.ts",
     "clean": "rm -rf dist",
-    "test": "bun test",
-    "test:login": "bun run scripts/test-login.ts",
-    "typecheck": "bun tsc -p tsconfig.json --noEmit",
+    "test": "bun test test",
+    "typecheck": "tsc -p tsconfig.json",
     "format": "bun prettier --write .",
     "format:check": "bun prettier --check .",
     "lint:package": "publint",
-    "validate": "bun run format:check && bun run typecheck && bun run test && bun run lint:package",
+    "validate": "bun run format:check && bun run typecheck && bun run test && bun run build && bun run lint:package",
     "example:demo": "bun run examples/demo.ts",
     "example:github": "bun run examples/github.ts",
     "example:notion": "bun run examples/notion.ts",
-    "example:mcp-auth": "bun run examples/mcp-auth.ts",
-    "prepublishOnly": "bun run build && bun run lint:package",
+    "prepublishOnly": "bun run validate",
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",
     "docs:preview": "vitepress preview docs",
-    "docs:deploy": "bunx gh-pages -d docs/.vitepress/dist"
+    "docs:deploy": "bunx gh-pages -d docs/.vitepress/dist",
+    "test:runtimes": "bun run build && node test/runtime-smoke.mjs && deno run --allow-net --allow-read --allow-write --allow-env=TMPDIR,TMP,TEMP test/runtime-smoke.mjs && bun test/runtime-smoke.mjs"
   }
 }

@@ -3,456 +3,103 @@
 /* SPDX-License-Identifier: MIT */
 
 /**
- * Self-contained OAuth demo with built-in mock authorization server
+ * Self-contained demo: a mock authorization server with PKCE, no credentials needed.
  *
- * No external setup required - just run: bun run example-demo.ts
- *
- * This example demonstrates the OAuth flow without needing real credentials
- * or external OAuth providers. Perfect for testing and learning.
+ *   bun run example:demo                # approve or deny in your browser
+ *   bun run example:demo --no-browser   # auto-approve (CI)
  */
 
-import open from "open";
-import { getAuthCode, OAuthError } from "../src/index";
-import type { Server } from "bun";
+import { createHash, randomBytes } from "node:crypto";
+import { getAuthCode, OAuthCallbackError } from "../src/index";
 
-// Mock OAuth Server Implementation
-class MockOAuthServer {
-  private server: Server | null = null;
-  private registeredClients = new Map<string, any>();
-  private authorizationCodes = new Map<string, any>();
+const codes = new Map<string, { challenge: string; redirectUri: string }>();
 
-  async start(port: number = 8080) {
-    this.server = Bun.serve({
-      port,
-      fetch: (req) => this.handleRequest(req),
-    });
-    console.log(`🎭 Mock OAuth server running on http://localhost:${port}`);
-  }
-
-  stop() {
-    this.server?.stop();
-  }
-
-  private async handleRequest(req: Request): Promise<Response> {
+// Mock authorization server: /authorize shows a consent page, /token redeems codes.
+const server = Bun.serve({
+  port: 0,
+  async fetch(req) {
     const url = new URL(req.url);
-
-    // Dynamic Client Registration endpoint
-    if (url.pathname === "/register" && req.method === "POST") {
-      return await this.handleClientRegistration(req);
-    }
-
-    // Authorization endpoint
+    const params = url.searchParams;
     if (url.pathname === "/authorize") {
-      return this.handleAuthorization(url);
+      const back = new URL(params.get("redirect_uri")!);
+      back.searchParams.set("state", params.get("state")!);
+      if (params.get("decision") === "deny") {
+        back.searchParams.set("error", "access_denied");
+        return Response.redirect(back.href);
+      }
+      if (params.get("decision") === "approve") {
+        const code = randomBytes(16).toString("hex");
+        codes.set(code, {
+          challenge: params.get("code_challenge")!,
+          redirectUri: back.href.split("?")[0]!,
+        });
+        back.searchParams.set("code", code);
+        return Response.redirect(back.href);
+      }
+      const link = (decision: string) =>
+        `${url.pathname}${url.search}&decision=${decision}`;
+      return new Response(
+        `<h1>Demo app wants access</h1><a href="${link("approve")}">Approve</a> · <a href="${link("deny")}">Deny</a>`,
+        { headers: { "Content-Type": "text/html" } },
+      );
     }
-
-    // Token endpoint
     if (url.pathname === "/token" && req.method === "POST") {
-      return await this.handleTokenExchange(req);
-    }
-
-    // User info endpoint
-    if (url.pathname === "/userinfo") {
-      return this.handleUserInfo(req);
-    }
-
-    return new Response("Not Found", { status: 404 });
-  }
-
-  private async handleClientRegistration(req: Request): Promise<Response> {
-    const data = await req.json();
-    const clientId = `client_${crypto.randomUUID().slice(0, 8)}`;
-    const clientSecret = `secret_${crypto.randomUUID().slice(0, 16)}`;
-
-    this.registeredClients.set(clientId, {
-      ...data,
-      client_id: clientId,
-      client_secret: clientSecret,
-      created_at: Date.now(),
-    });
-
-    return new Response(
-      JSON.stringify({
-        client_id: clientId,
-        client_secret: clientSecret,
-        redirect_uris: data.redirect_uris,
-        client_name: data.client_name,
-      }),
-      {
-        headers: { "Content-Type": "application/json" },
-      },
-    );
-  }
-
-  private handleAuthorization(url: URL): Response {
-    const clientId = url.searchParams.get("client_id");
-    const redirectUri = url.searchParams.get("redirect_uri");
-    const state = url.searchParams.get("state");
-    const responseType = url.searchParams.get("response_type");
-    const scenario = url.searchParams.get("scenario");
-
-    if (!redirectUri || responseType !== "code") {
-      return new Response("Invalid request", { status: 400 });
-    }
-
-    const callbackUrl = new URL(redirectUri);
-
-    // Simulate different scenarios
-    if (scenario === "error") {
-      callbackUrl.searchParams.set("error", "access_denied");
-      callbackUrl.searchParams.set(
-        "error_description",
-        "User denied the authorization request",
-      );
-      if (state) callbackUrl.searchParams.set("state", state);
-    } else if (scenario === "invalid_scope") {
-      callbackUrl.searchParams.set("error", "invalid_request");
-      callbackUrl.searchParams.set(
-        "error_description",
-        "The request is missing a required parameter or includes an invalid parameter value",
-      );
-      callbackUrl.searchParams.set(
-        "error_uri",
-        "https://example.com/docs/errors#invalid_request",
-      );
-      if (state) callbackUrl.searchParams.set("state", state);
-    } else if (scenario === "server_error") {
-      callbackUrl.searchParams.set("error", "server_error");
-      callbackUrl.searchParams.set(
-        "error_description",
-        "The authorization server encountered an unexpected condition",
-      );
-      if (state) callbackUrl.searchParams.set("state", state);
-    } else {
-      // Success case
-      const code = `code_${crypto.randomUUID().slice(0, 16)}`;
-      this.authorizationCodes.set(code, {
-        client_id: clientId,
-        redirect_uri: redirectUri,
-        created_at: Date.now(),
-      });
-      callbackUrl.searchParams.set("code", code);
-      if (state) callbackUrl.searchParams.set("state", state);
-    }
-
-    // Simulate authorization page with auto-redirect
-    const html = `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <meta charset="UTF-8">
-        <title>Mock OAuth Authorization</title>
-        <style>
-          body { font-family: system-ui; max-width: 600px; margin: 50px auto; padding: 20px; }
-          .box { border: 2px solid #4CAF50; border-radius: 8px; padding: 20px; background: #f0f9ff; }
-          h1 { color: #333; }
-          .redirect { color: #666; margin-top: 20px; }
-        </style>
-      </head>
-      <body>
-        <div class="box">
-          <h1>🎭 Mock Authorization Server</h1>
-          <p>This is a simulated OAuth authorization page.</p>
-          <p><strong>Client ID:</strong> ${clientId || "Not provided"}</p>
-          <p><strong>Scenario:</strong> ${scenario === "error" ? "❌ Access Denied" : scenario === "invalid_scope" ? "⚠️ Invalid Request" : scenario === "server_error" ? "🔥 Server Error" : "✅ Success"}</p>
-          <p class="redirect">Redirecting in 1 second...</p>
-        </div>
-        <script>
-          setTimeout(() => {
-            window.location.href = "${callbackUrl.toString()}";
-          }, 1000);
-        </script>
-      </body>
-      </html>
-    `;
-
-    return new Response(html, {
-      headers: { "Content-Type": "text/html" },
-    });
-  }
-
-  private async handleTokenExchange(req: Request): Promise<Response> {
-    const data = await req.formData();
-    const code = data.get("code");
-    const clientId = data.get("client_id");
-    const clientSecret = data.get("client_secret");
-
-    // Simulate token exchange
-    const accessToken = `token_${crypto.randomUUID().slice(0, 24)}`;
-
-    return new Response(
-      JSON.stringify({
-        access_token: accessToken,
+      const body = new URLSearchParams(await req.text());
+      const entry = codes.get(body.get("code")!);
+      const challenge = createHash("sha256")
+        .update(body.get("code_verifier")!)
+        .digest("base64url");
+      if (
+        !entry ||
+        entry.challenge !== challenge ||
+        entry.redirectUri !== body.get("redirect_uri")
+      )
+        return Response.json({ error: "invalid_grant" }, { status: 400 });
+      return Response.json({
+        access_token: "demo-token",
         token_type: "Bearer",
-        expires_in: 3600,
-        scope: "read:user",
-      }),
-      {
-        headers: { "Content-Type": "application/json" },
-      },
-    );
-  }
-
-  private handleUserInfo(req: Request): Response {
-    const authHeader = req.headers.get("Authorization");
-
-    if (!authHeader?.startsWith("Bearer ")) {
-      return new Response("Unauthorized", { status: 401 });
+      });
     }
+    return new Response("Not Found", { status: 404 });
+  },
+});
 
-    return new Response(
-      JSON.stringify({
-        id: "12345",
-        username: "demo_user",
-        name: "Demo User",
-        email: "demo@example.com",
-        avatar_url: "https://via.placeholder.com/150",
-      }),
-      {
-        headers: { "Content-Type": "application/json" },
-      },
-    );
-  }
-}
+const verifier = randomBytes(32).toString("base64url");
+const noBrowser = process.argv.includes("--no-browser");
 
-// Demo scenarios
-async function runScenario(
-  scenario: "success" | "error" | "invalid_scope" | "server_error",
-  mockServer: MockOAuthServer,
-  openBrowser: boolean = true,
-): Promise<boolean> {
-  console.log("\n" + "=".repeat(60));
+try {
+  const { code, redirectUri } = await getAuthCode(
+    () => {
+      const url = new URL("/authorize", server.url);
+      url.searchParams.set("client_id", "demo");
+      url.searchParams.set("response_type", "code");
+      url.searchParams.set(
+        "code_challenge",
+        createHash("sha256").update(verifier).digest("base64url"),
+      );
+      url.searchParams.set("code_challenge_method", "S256");
+      return url;
+    },
+    // Default launcher: the system browser. CI plays the user with a request instead.
+    noBrowser
+      ? { launch: (url) => fetch(`${url}&decision=approve`), timeout: 10_000 }
+      : {},
+  );
 
-  const scenarioTitles = {
-    success: "✅ Success Scenario",
-    error: "❌ Access Denied Scenario",
-    invalid_scope: "⚠️ Invalid Request Scenario",
-    server_error: "🔥 Server Error Scenario",
-  };
-
-  console.log(`Running: ${scenarioTitles[scenario]}`);
-  console.log("=".repeat(60) + "\n");
-
-  // Step 1: Dynamic Client Registration (simplified)
-  console.log("📝 Registering OAuth client dynamically...");
-  const registrationResponse = await fetch("http://localhost:8080/register", {
+  const response = await fetch(new URL("/token", server.url), {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      client_name: "OAuth Demo App",
-      redirect_uris: ["http://localhost:3000/callback"],
-      grant_types: ["authorization_code"],
+    body: new URLSearchParams({
+      grant_type: "authorization_code",
+      code,
+      code_verifier: verifier,
+      redirect_uri: redirectUri,
     }),
   });
-
-  const clientData = await registrationResponse.json();
-  console.log(`   Client ID: ${clientData.client_id}`);
-  console.log(`   Client Secret: ${clientData.client_secret?.slice(0, 10)}...`);
-
-  // Step 2: Build authorization URL
-  const authUrl = new URL("http://localhost:8080/authorize");
-  authUrl.searchParams.set("client_id", clientData.client_id);
-  authUrl.searchParams.set("redirect_uri", "http://localhost:3000/callback");
-  authUrl.searchParams.set("response_type", "code");
-  authUrl.searchParams.set("state", crypto.randomUUID());
-  authUrl.searchParams.set("scenario", scenario);
-
-  console.log("\n🔐 Starting OAuth authorization flow...");
-  console.log(`   State: ${authUrl.searchParams.get("state")}`);
-  if (openBrowser) {
-    console.log("\n🌐 Opening browser for authorization...");
-    console.log(
-      "   (The mock authorization page will auto-approve after 1 second)",
-    );
-  }
-
-  try {
-    // Step 3: Start the callback server and trigger authorization
-    let resultPromise: Promise<any>;
-
-    if (openBrowser) {
-      // Normal flow: open browser and wait for callback
-      resultPromise = getAuthCode({
-        authorizationUrl: authUrl.toString(),
-        port: 3000,
-        launch: open,
-        timeout: 10000,
-        onRequest: (req) => {
-          const url = new URL(req.url);
-          if (url.pathname === "/callback") {
-            console.log(
-              `   Callback received: ${url.pathname}${url.search.slice(0, 50)}...`,
-            );
-          }
-        },
-      });
-    } else {
-      // No-browser mode: start server and manually trigger callback
-      resultPromise = getAuthCode({
-        authorizationUrl: authUrl.toString(),
-        launch: false,
-        port: 3000,
-        timeout: 10000,
-        onRequest: (req) => {
-          const url = new URL(req.url);
-          if (url.pathname === "/callback") {
-            console.log(
-              `   Callback received: ${url.pathname}${url.search.slice(0, 50)}...`,
-            );
-          }
-        },
-      });
-
-      // Wait for server to start, then simulate OAuth provider redirect
-      await new Promise((resolve) => setTimeout(resolve, 500));
-      const authResponse = await fetch(authUrl.toString());
-      const authHtml = await authResponse.text();
-      const callbackMatch = authHtml.match(
-        /window\.location\.href = "([^"]+)"/,
-      );
-      if (callbackMatch) {
-        await fetch(callbackMatch[1]);
-      }
-    }
-
-    const result = await resultPromise;
-
-    console.log("\n✅ Authorization successful!");
-    console.log(`   Code: ${result.code}`);
-    console.log(`   State: ${result.state}`);
-
-    // Step 4: Exchange code for token
-    console.log("\n🔄 Exchanging authorization code for access token...");
-    const tokenResponse = await fetch("http://localhost:8080/token", {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        grant_type: "authorization_code",
-        code: result.code,
-        client_id: clientData.client_id,
-        client_secret: clientData.client_secret,
-        redirect_uri: "http://localhost:3000/callback",
-      }),
-    });
-
-    const tokenData = await tokenResponse.json();
-    console.log(`   Access token: ${tokenData.access_token.slice(0, 15)}...`);
-    console.log(`   Token type: ${tokenData.token_type}`);
-    console.log(`   Expires in: ${tokenData.expires_in} seconds`);
-
-    // Step 5: Use the token to get user info
-    console.log("\n👤 Fetching user information with access token...");
-    const userResponse = await fetch("http://localhost:8080/userinfo", {
-      headers: {
-        Authorization: `Bearer ${tokenData.access_token}`,
-      },
-    });
-
-    const userData = await userResponse.json();
-    console.log(`   User ID: ${userData.id}`);
-    console.log(`   Username: ${userData.username}`);
-    console.log(`   Name: ${userData.name}`);
-    console.log(`   Email: ${userData.email}`);
-
-    console.log("\n🎉 Demo scenario completed successfully!");
-    return true;
-  } catch (error) {
-    if (error instanceof OAuthError) {
-      console.log(
-        "\n❌ OAuth authorization denied (expected for this scenario)",
-      );
-      console.log(`   Error code: ${error.error}`);
-      if (error.error_description) {
-        console.log(`   Description: ${error.error_description}`);
-      }
-      if (error.error_uri) {
-        console.log(`   More info: ${error.error_uri}`);
-      }
-      console.log("\n✅ Error handling worked correctly!");
-      return true; // This is expected for error scenarios
-    } else if (error instanceof Error && error.message.includes("timeout")) {
-      console.error("\n❌ Request timed out - the mock server may be slow");
-      return false;
-    } else {
-      console.error("\n❌ Unexpected error:", error);
-      return false;
-    }
-  }
+  console.log("Token response:", await response.json());
+} catch (error) {
+  if (error instanceof OAuthCallbackError)
+    console.log(`Authorization denied: ${error.error}`);
+  else throw error;
+} finally {
+  server.stop();
 }
-
-// Main demo
-async function main() {
-  const args = process.argv.slice(2);
-  const shouldOpenBrowser = !args.includes("--no-browser");
-
-  console.log("🚀 OAuth Callback Library - Interactive Demo");
-  console.log("=".repeat(60));
-  console.log(
-    "\nThis demo shows the OAuth flow without needing real credentials.",
-  );
-  console.log(
-    "It includes a mock OAuth server with dynamic client registration.",
-  );
-
-  if (!shouldOpenBrowser) {
-    console.log("\n📝 Running in --no-browser mode (for automated testing)");
-  }
-  console.log("\n⏳ The demo will showcase the default templates with:");
-  console.log("\n✨ Success page features:");
-  console.log("   • Confetti animation and sparkles");
-  console.log("   • Auto-close countdown with progress ring");
-  console.log("   • Dark mode support");
-  console.log("\n❗ Error page features:");
-  console.log("   • Context-specific error icons");
-  console.log("   • Copy error code button");
-  console.log("   • Helpful error messages");
-  console.log();
-
-  const mockServer = new MockOAuthServer();
-  await mockServer.start(8080);
-
-  try {
-    // Run different scenarios with pauses between them
-    const success1 = await runScenario(
-      "success",
-      mockServer,
-      shouldOpenBrowser,
-    );
-
-    if (success1) {
-      console.log("\n" + "─".repeat(60));
-      console.log("⏳ Continuing with error scenario in 2 seconds...");
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-    }
-
-    const success2 = await runScenario("error", mockServer, shouldOpenBrowser);
-
-    console.log("\n" + "─".repeat(60));
-    console.log("⏳ Continuing with invalid scope scenario in 2 seconds...");
-    await new Promise((resolve) => setTimeout(resolve, 2000));
-
-    const success3 = await runScenario(
-      "invalid_scope",
-      mockServer,
-      shouldOpenBrowser,
-    );
-
-    console.log("\n" + "=".repeat(60));
-    console.log("🏁 All demo scenarios completed!");
-    console.log("\nThis demo showcased:");
-    console.log("  • Dynamic client registration");
-    console.log("  • Successful authorization flow with confetti animation");
-    console.log("  • Error handling for access denied with contextual help");
-    console.log("  • Error handling with error_uri and copy button");
-    console.log("  • Default templates with dark mode support");
-    console.log("  • Token exchange and API usage");
-  } finally {
-    mockServer.stop();
-    console.log("\n🛑 Mock OAuth server stopped");
-  }
-
-  process.exit(0);
-}
-
-// Run the demo
-main().catch(console.error);

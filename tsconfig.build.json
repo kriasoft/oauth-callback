@@ -1,0 +1,16 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    // Consumers resolve our declarations with NodeNext rules: relative specifiers need `.js`.
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "emitDeclarationOnly": true,
+    "declaration": true,
+    "declarationMap": false,
+    "rootDir": "./src",
+    "outDir": "./dist"
+  },
+  "include": ["src/**/*"],
+  "exclude": ["**/*.test.ts"]
+}
