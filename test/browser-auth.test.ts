@@ -147,6 +147,19 @@ describe("connect()", () => {
     expect(JSON.parse(store.value!).tokens.access_token).not.toBe("expired");
   });
 
+  test("discovery written by another attempt doesn't leak into a pending flow", async () => {
+    let auth!: ReturnType<typeof setup>;
+    auth = setup({
+      launch: (url) => {
+        auth.saveDiscoveryState!({
+          authorizationServerUrl: "https://other-as.example.com/",
+        });
+        void mock.authorize(url);
+      },
+    });
+    await auth.connect(newClient());
+  });
+
   test("a hung launcher doesn't block the flow", async () => {
     const auth = setup({
       launch: (url) => {
@@ -404,9 +417,10 @@ describe("flow ownership", () => {
     await expect(client.connect(transport)).rejects.toBeInstanceOf(
       UnauthorizedError,
     );
-    await expect(auth.connect(newClient())).rejects.toThrow(
-      /already in progress/,
-    );
+    // connect() can't complete a flow a caller's transport started: no "retry" signal.
+    const error = await auth.connect(newClient()).catch((e) => e);
+    expect(error).not.toBeInstanceOf(UnauthorizedError);
+    expect(error.message).toMatch(/already in progress/);
     await auth.completeAuthorization(transport);
     await transport.close();
     const next = new StreamableHTTPClientTransport(new URL(mock.mcpUrl), {
@@ -569,6 +583,67 @@ describe("credentials", () => {
       expect(await auth.tokens()).toBeUndefined();
     });
 
+  const staticOptions = () => ({
+    clientName: undefined,
+    clientInformation: { client_id: "static-client", issuer: mock.base },
+  });
+
+  for (const [kind, scope] of [
+    ["dynamic", "tokens"],
+    ["static", "all"],
+  ] as const)
+    test(`invalidateCredentials('${scope}') during a refresh wins (${kind} client)`, async () => {
+      const store = memory();
+      const options = kind === "static" ? staticOptions() : {};
+      await setup({ store, ...options }).connect(newClient());
+      const doc = JSON.parse(store.value!);
+      doc.tokens.access_token = "expired";
+      store.value = JSON.stringify(doc);
+      mock.knobs.tokenDelay = 300;
+      const auth = setup({ store, ...options });
+      const connecting = auth.connect(newClient()).catch((e) => e);
+      const before = mock.tokenRequests.length;
+      while (mock.tokenRequests.length === before) await sleep(10);
+      await auth.invalidateCredentials!(scope);
+      expect((await connecting).message).toMatch(/invalidated/);
+      expect(await auth.tokens()).toBeUndefined();
+      if (scope === "all") expect(store.value).toBeUndefined();
+    });
+
+  test("invalidation during an external exchange survives a re-stamping attempt", async () => {
+    const auth = setup();
+    const newTransport = () =>
+      new StreamableHTTPClientTransport(new URL(mock.mcpUrl), {
+        authProvider: auth,
+      });
+    const transport = newTransport();
+    await expect(newClient().connect(transport)).rejects.toBeInstanceOf(
+      UnauthorizedError,
+    );
+    mock.knobs.tokenDelay = 300;
+    const completing = auth.completeAuthorization(transport).catch((e) => e);
+    while (mock.tokenRequests.length === 0) await sleep(10);
+    await auth.invalidateCredentials!("tokens");
+    await newClient()
+      .connect(newTransport())
+      .catch(() => {}); // re-stamps the shared owner
+    expect((await completing).message).toMatch(/invalidated/);
+    expect(await auth.tokens()).toBeUndefined();
+  });
+
+  for (const scope of ["client", "all"] as const)
+    test(`invalidateCredentials('${scope}') during a registration wins`, async () => {
+      mock.knobs.registerDelay = 300;
+      const store = memory();
+      const auth = setup({ store });
+      const connecting = auth.connect(newClient()).catch((e) => e);
+      await sleep(100);
+      await auth.invalidateCredentials!(scope);
+      expect((await connecting).message).toMatch(/invalidated/);
+      expect(await auth.clientInformation()).toBeUndefined();
+      expect(store.value).toBeUndefined();
+    });
+
   test("invalidateCredentials('all') clears the store", async () => {
     const store = memory();
     const auth = setup({ store });
@@ -708,6 +783,11 @@ describe("options", () => {
       { ...valid, clientInformation: { client_id: "x" } },
       { ...valid, clientInformation: { client_id: "", issuer: "https://as" } },
       { ...valid, successHtml: 1 },
+      {
+        ...valid,
+        clientName: 1,
+        clientInformation: { client_id: "x", issuer: "https://as" },
+      },
       { ...valid, errorHtml: {} },
       { ...valid, timeout: 0 },
       { ...valid, launch: true },

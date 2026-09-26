@@ -65,7 +65,11 @@ export interface BrowserAuthOptions {
   store?: CredentialStore;
   /** Same contract as `getAuthCode()`: opens the URL; only a rejection fails the flow. */
   launch?: (url: URL) => unknown;
-  /** Milliseconds one interactive authorization may take, from state creation through token exchange. Default 300_000. */
+  /**
+   * Milliseconds one interactive authorization may take, from state creation through token
+   * exchange. Default 300_000. `connect()` aborts its OAuth requests at the deadline;
+   * `completeAuthorization()` can't interrupt your transport's `finishAuth()`: bound its fetch.
+   */
   timeout?: number;
   successHtml?: string;
   errorHtml?: string;
@@ -96,13 +100,15 @@ export interface BrowserAuth extends OAuthClientProvider {
   ): Promise<void>;
 }
 
-/** Who reserved a flow: a transport created by `connect()`, or `EXTERNAL` (the provider itself). */
+/** Who reserved a flow: a transport created by `connect()`, or `external` (the provider itself). */
 interface Owner {
   transport?: StreamableHTTPClientTransport;
   /** While set, the transport's OAuth fetches abort with it: the `connect()` call, then the token exchange. */
   signal?: AbortSignal;
   /** Its `connect()` attempt failed: late SDK hooks must not start a flow or open a browser. */
   abandoned?: boolean;
+  /** Session generation when its current SDK auth pass began (see Session.#generation). */
+  generation?: number;
 }
 
 /** One interactive authorization, from `state()` until its token exchange settles. */
@@ -120,10 +126,12 @@ interface Flow {
   result?: Promise<URLSearchParams>;
   /** PKCE verifier, written only by the reserving owner before redirect. */
   verifier?: string;
+  /** Discovery pinned for this flow: an overlapping attempt's discovery can't replace it. */
+  discovery?: OAuthDiscoveryState;
   failed: boolean;
   completing: boolean;
-  /** Credentials were invalidated during the exchange: its tokens must not be saved. */
-  revoked?: boolean;
+  /** Session generation when the exchange started; independent of re-stampable owners. */
+  generation?: number;
 }
 
 interface Config {
@@ -136,8 +144,6 @@ interface Config {
   pages: CallbackPages;
 }
 
-const EXTERNAL: Owner = {};
-
 /**
  * Shared state behind the provider and the per-transport views `connect()` creates.
  * Rule: one interactive authorization per provider at a time; overlapping attempts fail
@@ -145,9 +151,19 @@ const EXTERNAL: Owner = {};
  */
 class Session {
   flow?: Flow;
+  /** The owner behind the provider itself, shared by every transport the caller creates. */
+  readonly external: Owner = {};
   /** Client registrations still being persisted; they pin out new flows (see #saveClient). */
   #savingClient = 0;
   #discovery?: OAuthDiscoveryState;
+  /**
+   * Bumped by credential invalidation. Every SDK auth pass starts by reading
+   * clientInformation(), which stamps the owner; a registration, refresh or exchange that
+   * began before an invalidation can't save afterwards, so logout can't be undone.
+   * Transports you create share one owner, and a concurrent pass can re-stamp it, so a
+   * running exchange also carries its own stamp (Flow.generation).
+   */
+  #generation = 0;
 
   constructor(
     readonly config: Config,
@@ -165,12 +181,13 @@ class Session {
         return config.metadata;
       },
       state: () => this.#reserve(owner),
-      clientInformation: () => this.#clientInformation(),
+      clientInformation: () => {
+        owner.generation = this.#generation;
+        return this.#clientInformation();
+      },
       tokens: () => this.#tokens(),
       saveTokens: (tokens) => {
-        // Logout during a token exchange wins; this rejects the exchange's finishAuth().
-        if (this.flow?.revoked)
-          throw new Error("Credentials were invalidated during authorization");
+        this.#checkGeneration(owner);
         return credentials.update((c) => {
           const client = config.staticClient ?? c.client;
           if (!client) throw new Error("OAuth tokens without a client");
@@ -192,8 +209,16 @@ class Session {
           throw new Error("No PKCE code verifier for this authorization");
         return verifier;
       },
-      saveDiscoveryState: (state) => void (this.#discovery = state),
-      discoveryState: () => this.#discovery,
+      // The owner of a flow reads and writes that flow's copy; everyone else the shared one.
+      saveDiscoveryState: (state) => {
+        const flow = this.flow;
+        if (flow?.owner === owner) flow.discovery = state;
+        else this.#discovery = state;
+      },
+      discoveryState: () => {
+        const flow = this.flow;
+        return flow?.owner === owner ? flow.discovery : this.#discovery;
+      },
       invalidateCredentials: (scope) => this.#invalidate(scope),
     };
     // Omitted for a static client, so the SDK itself refuses DCR and foreign issuers.
@@ -217,13 +242,13 @@ class Session {
       throw new Error(
         "The connect() call that started this authorization has ended",
       );
-    if (this.#active() || this.#savingClient) {
+    const active = this.#active();
+    if (active || this.#savingClient) {
       const message = "An MCP authorization is already in progress";
-      // connect() knows each flow's transport, so an overlapped request (e.g. concurrent
-      // 403 step-ups) can take the "complete, then retry" path. Caller-created transports
-      // share one owner: UnauthorizedError would invite completing the flow on a transport
-      // that didn't start it.
-      throw owner === EXTERNAL
+      // UnauthorizedError means "connect() completes it, then retry", which holds only when
+      // both sides are connect() transports (e.g. concurrent 403 step-ups). Caller-created
+      // transports share one owner, and connect() can't complete their flows.
+      throw owner === this.external || active?.owner === this.external
         ? new Error(message)
         : new UnauthorizedError(message);
     }
@@ -239,6 +264,7 @@ class Session {
       clearTimer: timer.clear,
       ready,
       markReady,
+      discovery: this.#discovery,
       failed: false,
       completing: false,
     };
@@ -318,6 +344,7 @@ class Session {
     if (flow.completing)
       throw new Error("This authorization is already being completed");
     flow.completing = true;
+    flow.generation = this.#generation;
     const combined = signal
       ? AbortSignal.any([signal, flow.signal])
       : flow.signal;
@@ -380,6 +407,7 @@ class Session {
       throw new Error(
         "The connect() call that started this registration has ended",
       );
+    this.#checkGeneration(owner);
     // Client identity is pinned while a flow is active (see #redirect), and a save
     // pins out new flows until it is persisted, so no flow starts on the old client.
     if (this.#active())
@@ -403,14 +431,26 @@ class Session {
     }
   }
 
+  #checkGeneration(owner: Owner): void {
+    const flow = this.flow;
+    if (
+      (owner.generation ?? 0) !== this.#generation ||
+      (flow?.completing && flow.generation !== this.#generation)
+    )
+      throw new Error("Credentials were invalidated during authorization");
+  }
+
   async #invalidate(
     scope: "all" | "client" | "tokens" | "verifier" | "discovery",
   ): Promise<void> {
     if ((scope === "verifier" || scope === "all") && this.flow)
       this.flow.verifier = undefined;
-    if (scope === "discovery" || scope === "all") this.#discovery = undefined;
-    if ((scope === "all" || scope === "tokens") && this.flow?.completing)
-      this.flow.revoked = true;
+    if (scope === "discovery" || scope === "all") {
+      this.#discovery = undefined;
+      if (this.flow) this.flow.discovery = undefined;
+    }
+    if (scope === "all" || scope === "client" || scope === "tokens")
+      this.#generation++;
     if (scope === "all" && this.flow && !this.flow.completing)
       this.end(this.flow);
     // A static client is configuration, not state: it survives every scope.
@@ -440,13 +480,18 @@ function resolveConfig(options: BrowserAuthOptions): Config {
     serverHref.includes("#")
   )
     throw new TypeError(
-      `serverUrl must be an https: URL (http: only on a loopback host) without credentials or fragment, got "${serverHref}"`,
+      "serverUrl must be an https: URL (http: only on a loopback host) without credentials or fragment",
     );
   if (options.redirectUri === undefined)
     throw new TypeError(
       "redirectUri is required, e.g. http://127.0.0.1:8765/callback",
     );
   const redirect = parseRedirectUri(options.redirectUri);
+  if (
+    clientName !== undefined &&
+    (typeof clientName !== "string" || !clientName)
+  )
+    throw new TypeError("clientName must be a non-empty string");
   if (clientInformation !== undefined) {
     if (
       typeof clientInformation?.client_id !== "string" ||
@@ -460,7 +505,7 @@ function resolveConfig(options: BrowserAuthOptions): Config {
       throw new TypeError(
         "clientInformation.issuer is required: use the authorization_servers entry of the MCP server's protected-resource metadata",
       );
-  } else if (typeof clientName !== "string" || !clientName) {
+  } else if (clientName === undefined) {
     throw new TypeError(
       "clientName is required for dynamic client registration (or pass clientInformation)",
     );
@@ -633,14 +678,14 @@ export function browserAuth(options: BrowserAuthOptions): BrowserAuth {
     const flow = session.flow;
     if (!flow?.result)
       throw new Error("No MCP authorization is waiting to be completed");
-    if (flow.owner !== EXTERNAL)
+    if (flow.owner !== session.external)
       throw new Error(
         "This authorization was started by connect(); call connect(client) to complete it",
       );
     await session.complete(flow, transport, options.signal);
   };
 
-  return Object.assign(session.provider(EXTERNAL), {
+  return Object.assign(session.provider(session.external), {
     connect,
     completeAuthorization,
   });
