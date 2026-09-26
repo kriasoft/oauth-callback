@@ -68,12 +68,21 @@ export class CredentialSlot {
   }
 
   /**
-   * Applies `change` to the current slot and persists it. Read–modify–write runs in a queue,
-   * so concurrent SDK saves and invalidations each see the previous one's result.
+   * Applies `change` to the current slot and persists it. Writes run in a queue, so
+   * concurrent SDK saves and invalidations each see the previous one's result.
    */
   update(change: (credentials: Credentials) => Credentials): Promise<void> {
+    return this.#write(async () => change(await this.read()));
+  }
+
+  /** Empties the slot without reading it, so unreadable text can be cleared too. */
+  clear(): Promise<void> {
+    return this.#write(async () => ({}));
+  }
+
+  #write(compute: () => Promise<Credentials>): Promise<void> {
     const run = this.#queue.then(async () => {
-      const next = change(await this.read());
+      const next = await compute();
       const text =
         next.client || next.tokens
           ? JSON.stringify({

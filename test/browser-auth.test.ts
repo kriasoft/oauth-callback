@@ -510,7 +510,7 @@ describe("flow ownership", () => {
       .catch((e) => e);
     const before = mock.tokenRequests.length;
     while (mock.tokenRequests.length === before) await sleep(10);
-    await auth.invalidateCredentials!("tokens");
+    await auth.invalidateCredentials("tokens");
     // A second attempt on the shared owner re-reads clientInformation() and starts a flow.
     await expect(
       newClient().connect(ownTransport(auth)),
@@ -531,7 +531,7 @@ describe("flow ownership", () => {
     const refreshing = auth.connect(newClient()).catch((e) => e);
     const before = mock.tokenRequests.length;
     while (mock.tokenRequests.length === before) await sleep(10);
-    await auth.invalidateCredentials!("tokens");
+    await auth.invalidateCredentials("tokens");
     const transport = ownTransport(auth);
     await expect(newClient().connect(transport)).rejects.toBeInstanceOf(
       UnauthorizedError,
@@ -708,7 +708,7 @@ describe("credentials", () => {
       });
       const connecting = auth.connect(newClient()).catch((e) => e);
       while (mock.tokenRequests.length === 0) await sleep(10);
-      await auth.invalidateCredentials!("all");
+      await auth.invalidateCredentials("all");
       expect((await connecting).message).toMatch(/invalidated/);
       expect(store.value).toBeUndefined();
       expect(await auth.tokens()).toBeUndefined();
@@ -735,7 +735,7 @@ describe("credentials", () => {
       const connecting = auth.connect(newClient()).catch((e) => e);
       const before = mock.tokenRequests.length;
       while (mock.tokenRequests.length === before) await sleep(10);
-      await auth.invalidateCredentials!(scope);
+      await auth.invalidateCredentials(scope);
       expect((await connecting).message).toMatch(/invalidated/);
       expect(await auth.tokens()).toBeUndefined();
       if (scope === "all") expect(store.value).toBeUndefined();
@@ -754,7 +754,7 @@ describe("credentials", () => {
     mock.knobs.tokenDelay = 300;
     const completing = auth.completeAuthorization(transport).catch((e) => e);
     while (mock.tokenRequests.length === 0) await sleep(10);
-    await auth.invalidateCredentials!("tokens");
+    await auth.invalidateCredentials("tokens");
     await newClient()
       .connect(newTransport())
       .catch(() => {}); // re-stamps the shared owner
@@ -772,7 +772,7 @@ describe("credentials", () => {
     const before = mock.tokenRequests.length;
     const refreshing = client.listTools().catch((e) => e);
     while (mock.tokenRequests.length === before) await sleep(10);
-    await auth.invalidateCredentials!("tokens");
+    await auth.invalidateCredentials("tokens");
     // Settles while the refresh response is still held back: the request was aborted.
     const error = await refreshing;
     expect(error).not.toBeInstanceOf(UnauthorizedError); // no browser for a sign-out
@@ -837,6 +837,73 @@ describe("credentials", () => {
     expect(mock.authorizeRequests).toHaveLength(2); // initial + step-up only
   });
 
+  /** Two clients connected through one provider, then a step-up on `b` held at its code exchange. */
+  const stepUpHeldAtExchange = async () => {
+    const store = memory();
+    const auth = setup({ store });
+    const [a, b] = [newClient(), newClient()];
+    await auth.connect(a);
+    await auth.connect(b);
+    mock.knobs.requiredScope = "admin";
+    await expect(b.listTools()).rejects.toBeInstanceOf(UnauthorizedError);
+    let release!: () => void;
+    mock.knobs.exchangeGate = new Promise((resolve) => (release = resolve));
+    const exchangeAt = mock.tokenRequests.length + 1;
+    const stepUp = auth.connect(b);
+    while (mock.tokenRequests.length < exchangeAt) await sleep(5);
+    expect(mock.tokenRequests.at(-1)!.get("grant_type")).toBe(
+      "authorization_code",
+    );
+    const finish = async () => {
+      release();
+      await stepUp;
+      // No refresh reached the server once the exchange began.
+      expect(
+        mock.tokenRequests
+          .slice(exchangeAt)
+          .map((params) => params.get("grant_type")),
+      ).not.toContain("refresh_token");
+      expect(JSON.parse(store.value!).tokens.scope).toContain("admin");
+    };
+    return { auth, a, b, finish };
+  };
+
+  for (const same of [false, true])
+    test(`a refresh starting during a step-up exchange can't overwrite it (${same ? "same" : "another"} transport)`, async () => {
+      const { auth, a, b, finish } = await stepUpHeldAtExchange();
+      const client = same ? b : a;
+      mock.knobs.rejectNext = true;
+      // Superseded: the retry after connect() uses the newer tokens.
+      expect(await client.listTools().catch((e) => e)).toBeInstanceOf(
+        UnauthorizedError,
+      );
+      await finish();
+      await auth.connect(client);
+      expect(await client.listTools()).toEqual({ tools: [] });
+      expect(mock.authorizeRequests).toHaveLength(2); // initial + step-up only
+    });
+
+  test("during a step-up exchange, only the exchanging transport saves tokens", async () => {
+    const { auth, finish } = await stepUpHeldAtExchange();
+    // What a refresh from a caller-created transport would save.
+    await expect(
+      auth.saveTokens({ access_token: "late", token_type: "Bearer" }),
+    ).rejects.toBeInstanceOf(UnauthorizedError);
+    await finish();
+  });
+
+  test("invalidateCredentials('all') clears an unreadable store", async () => {
+    const store = memory();
+    store.value = "{not json";
+    const auth = setup({ store });
+    await expect(auth.tokens()).rejects.toThrow(/not valid JSON/);
+    await auth.invalidateCredentials("all");
+    expect(store.value).toBeUndefined();
+    const client = newClient();
+    await auth.connect(client);
+    expect(await client.listTools()).toEqual({ tools: [] });
+  });
+
   for (const scope of ["client", "all"] as const)
     test(`invalidateCredentials('${scope}') during a registration wins`, async () => {
       mock.knobs.registerDelay = 300;
@@ -844,7 +911,7 @@ describe("credentials", () => {
       const auth = setup({ store });
       const connecting = auth.connect(newClient()).catch((e) => e);
       while (mock.registrations.length === 0) await sleep(10);
-      await auth.invalidateCredentials!(scope);
+      await auth.invalidateCredentials(scope);
       expect((await connecting).message).toMatch(/invalidated/);
       expect(await auth.clientInformation()).toBeUndefined();
       expect(store.value).toBeUndefined();
@@ -854,7 +921,7 @@ describe("credentials", () => {
     const store = memory();
     const auth = setup({ store });
     await auth.connect(newClient());
-    await auth.invalidateCredentials!("all");
+    await auth.invalidateCredentials("all");
     expect(store.value).toBeUndefined();
   });
 
@@ -879,7 +946,7 @@ describe("credentials", () => {
 
   test("a refresh can't save once the tokens it replaces were invalidated", async () => {
     const auth = setup({ store: authorized() });
-    await auth.invalidateCredentials!("tokens");
+    await auth.invalidateCredentials("tokens");
     await expect(
       auth.saveTokens({ access_token: "late", token_type: "Bearer" }),
     ).rejects.toThrow(/invalidated/);
@@ -962,7 +1029,7 @@ describe("static client", () => {
 
   test("survives invalidateCredentials('all')", async () => {
     const auth = setup({ clientInformation: staticClient(mock.base) });
-    await auth.invalidateCredentials!("all");
+    await auth.invalidateCredentials("all");
     expect(await auth.clientInformation()).toMatchObject({
       client_id: "static-client",
     });
@@ -998,6 +1065,9 @@ describe("options", () => {
       { ...valid, timeout: 0 },
       { ...valid, launch: true },
       { ...valid, store: {} },
+      { ...valid, clientMetadata: "read" },
+      { ...valid, clientMetadata: ["read"] },
+      { ...valid, clientMetadata: null },
     ])
       expect(() => browserAuth(invalid as never)).toThrow();
     expect(() =>

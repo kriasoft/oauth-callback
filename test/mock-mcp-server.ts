@@ -43,6 +43,8 @@ export async function startMockServer(options: MockOptions = {}) {
     tokenDelay: 0,
     /** Refresh responses wait for this gate, so a test can decide when they'd land. */
     refreshGate: undefined as Promise<void> | undefined,
+    /** Authorization-code responses wait for this gate. */
+    exchangeGate: undefined as Promise<void> | undefined,
     /** Answer the next MCP request with 401, whatever its token. */
     rejectNext: false,
     /** Delay registration responses (ms). */
@@ -131,6 +133,8 @@ export async function startMockServer(options: MockOptions = {}) {
         return json(res, 400, { error });
       }
       if (params.get("grant_type") === "authorization_code") {
+        await knobs.exchangeGate;
+        if (res.destroyed) return;
         const code = codes.get(params.get("code")!);
         codes.delete(params.get("code")!);
         const challenge = createHash("sha256")

@@ -76,6 +76,10 @@ export interface BrowserAuthOptions {
 }
 
 export interface BrowserAuth extends OAuthClientProvider {
+  /** Always present; `"all"` clears the store (even unreadable text) and ends a pending flow. */
+  invalidateCredentials: NonNullable<
+    OAuthClientProvider["invalidateCredentials"]
+  >;
   /**
    * Connects `client` to `serverUrl` over Streamable HTTP, completing browser authorization
    * if required. Resolves once `client` is connected. Also completes a step-up authorization
@@ -171,7 +175,8 @@ class Session {
    * no earlier response arrives. The checks below are the backstop for transports you
    * create, where the SDK gives hooks no attempt identity and all transports share one owner:
    * - a token save from a flow's owner while its finishAuth() runs is the exchange and must
-   *   match the stamp taken when completion started (Flow.generation);
+   *   match the stamp taken when completion started (Flow.generation); a save from any other
+   *   owner then is a superseded refresh (the same owner's is refused in cancellable());
    * - any other token save is a refresh: its pass's stamp must be current, and it may only
    *   replace tokens still stored;
    * - a registration and state() check the stamp their SDK pass took in clientInformation().
@@ -194,9 +199,11 @@ class Session {
   ) {}
 
   /** The provider hooks as seen through `owner`, so each flow knows its transport. */
-  provider(owner: Owner): OAuthClientProvider {
+  provider(
+    owner: Owner,
+  ): Omit<BrowserAuth, "connect" | "completeAuthorization"> {
     const { config, credentials } = this;
-    const provider: OAuthClientProvider = {
+    const provider: ReturnType<Session["provider"]> = {
       get redirectUrl() {
         return config.redirect.href;
       },
@@ -212,9 +219,10 @@ class Session {
       saveTokens: async (tokens) => {
         const flow = this.flow;
         const exchange = flow?.exchanging && flow.owner === owner;
-        if (exchange && flow.generation !== this.#generation)
-          throw new Error(INVALIDATED);
-        if (!exchange) this.#checkCurrent(owner);
+        // During an exchange any other owner's save is a refresh it supersedes.
+        if (flow?.exchanging && !exchange)
+          throw new UnauthorizedError(SUPERSEDED);
+        this.#checkCurrent(exchange ? flow.generation : owner.generation);
         await credentials.update((c) => {
           const client = config.staticClient ?? c.client;
           if (!client) throw new Error("OAuth tokens without a client");
@@ -280,7 +288,7 @@ class Session {
       );
     // A pass from before a sign-out or a newer authorization (e.g. a refresh it aborted)
     // must not fall back to opening the browser.
-    this.#checkCurrent(owner);
+    this.#checkCurrent(owner.generation);
     const active = this.#active();
     if (active || this.#savingClient) {
       const message = "An MCP authorization is already in progress";
@@ -457,7 +465,7 @@ class Session {
       throw new Error(
         "The connect() call that started this registration has ended",
       );
-    this.#checkCurrent(owner);
+    this.#checkCurrent(owner.generation);
     // Client identity is pinned while a flow is active (see #redirect), and a save
     // pins out new flows until it is persisted, so no flow starts on the old client.
     if (this.#active())
@@ -492,8 +500,7 @@ class Session {
    * UnauthorizedError, so the usual "connect(), then retry" picks up the newer tokens;
    * signed-out work gets a plain Error, since retrying must not sign back in.
    */
-  #checkCurrent(owner: Owner): void {
-    const stamp = owner.generation;
+  #checkCurrent(stamp: number | undefined): void {
     if (stamp === undefined || stamp === this.#generation) return;
     throw stamp < this.#signedOut
       ? new Error(INVALIDATED)
@@ -516,7 +523,7 @@ class Session {
     if (scope === "all" && this.flow && !this.flow.completing)
       this.end(this.flow);
     // A static client is configuration, not state: it survives every scope.
-    if (scope === "all") await this.credentials.update(() => ({}));
+    if (scope === "all") await this.credentials.clear();
     if (scope === "client")
       await this.credentials.update((c) => ({ tokens: c.tokens }));
     if (scope === "tokens")
@@ -574,6 +581,13 @@ function resolveConfig(options: BrowserAuthOptions): Config {
   }
   if (typeof launch !== "function")
     throw new TypeError("launch must be a function");
+  const { clientMetadata = {} } = options;
+  if (
+    typeof clientMetadata !== "object" ||
+    clientMetadata === null ||
+    Array.isArray(clientMetadata)
+  )
+    throw new TypeError("clientMetadata must be an object");
 
   // Adapter-owned fields go last so untyped callers can't override them. grant_types and
   // application_type are left to the SDK's DCR defaults (no forced offline_access).
@@ -583,7 +597,7 @@ function resolveConfig(options: BrowserAuthOptions): Config {
     response_types,
     application_type,
     ...extra
-  } = (options.clientMetadata ?? {}) as Partial<OAuthClientMetadata>;
+  } = clientMetadata as Partial<OAuthClientMetadata>;
   const metadata: OAuthClientMetadata = {
     ...extra,
     ...(clientName ? { client_name: clientName } : {}),
@@ -651,13 +665,21 @@ export function browserAuth(options: BrowserAuthOptions): BrowserAuth {
    * through `owner.signal` and credential invalidation, so no response from before an
    * invalidation can be saved after it. MCP traffic always targets `serverUrl` exactly and is
    * left alone: a long-lived SSE stream or a concurrent request must not inherit either.
+   * No refresh starts during an interactive exchange: on the exchanging transport its save
+   * would pass for the exchange's, and it could land after the newer tokens.
    */
   function cancellable(
     owner: Owner,
     base: FetchLike = (url, init) => fetch(url, init),
   ): FetchLike {
-    return (url, init) => {
+    return async (url, init) => {
       if (String(url) === config.serverUrl.href) return base(url, init);
+      if (
+        session.flow?.exchanging &&
+        init?.body instanceof URLSearchParams &&
+        init.body.get("grant_type") === "refresh_token"
+      )
+        throw new UnauthorizedError(SUPERSEDED);
       const signals = [init?.signal, owner.signal, session.invalidationSignal];
       return base(url, {
         ...init,

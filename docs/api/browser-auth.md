@@ -41,12 +41,16 @@ Notes:
 - **`clientInformation.issuer`** is the `authorization_servers` entry of the MCP server's protected-resource metadata. A static client is never re-registered, and the SDK refuses a different issuer.
 - **Refresh tokens.** To opt into `offline_access`, declare `clientMetadata: { grant_types: ["authorization_code", "refresh_token"] }`.
 
-Invalid options throw `TypeError` (or `RangeError` for `timeout`) immediately.
+Invalid options (including a non-object `clientMetadata`) throw `TypeError` (or `RangeError` for `timeout`) immediately.
 
 ## Return value
 
 ```ts
 interface BrowserAuth extends OAuthClientProvider {
+  invalidateCredentials(
+    scope: "all" | "client" | "tokens" | "verifier" | "discovery",
+  ): void | Promise<void>; // required here
+
   connect(
     client: Client,
     options?: ConnectOptions & {
@@ -80,7 +84,7 @@ Low-level, for transports you create. After the SDK throws `UnauthorizedError`, 
 
 ### Provider hooks
 
-The `OAuthClientProvider` members (`redirectUrl`, `clientMetadata`, `state()`, `tokens()`, `saveTokens()`, `redirectToAuthorization()`, `invalidateCredentials()`, …) are called by the SDK. Of these, only `invalidateCredentials("all")` is useful to call yourself: it clears the stored credentials. It doesn't close a live connection, so to sign out call `await client.close()` first.
+The `OAuthClientProvider` members (`redirectUrl`, `clientMetadata`, `state()`, `tokens()`, `saveTokens()`, `redirectToAuthorization()`, `invalidateCredentials()`, …) are called by the SDK. Of these, only `invalidateCredentials("all")` is useful to call yourself: it clears the stored credentials, even unreadable ones. It doesn't close a live connection, so to sign out call `await client.close()` first.
 
 ## Examples
 

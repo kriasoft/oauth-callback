@@ -27,7 +27,7 @@ The adapter reads the store once, then keeps a cached copy and serializes its wr
 ## Rules
 
 - **One store per MCP server.** Tokens are audience-bound ([RFC 8707](https://www.rfc-editor.org/rfc/rfc8707.html)). A document saved for another `serverUrl` throws instead of being reused.
-- **Nothing is discarded silently.** Unreadable JSON, an unknown version or invalid records throw; clear the store to start over.
+- **Nothing is discarded silently.** Unreadable JSON, an unknown version or invalid records throw; `invalidateCredentials("all")` clears the store to start over.
 - **Only durable state is stored.** `state`, the PKCE verifier and discovery state stay in memory.
 - **One slot.** A new client registration replaces the stored client and drops tokens issued to the old one.
 
