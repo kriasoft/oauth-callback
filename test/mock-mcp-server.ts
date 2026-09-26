@@ -35,12 +35,16 @@ export async function startMockServer(options: MockOptions = {}) {
   const tokenRequests: URLSearchParams[] = [];
   const codes = new Map<string, Code>();
   const accessTokens = new Map<string, { scope?: string }>();
-  const refreshTokens = new Map<string, string>(); // refresh → client_id
+  const refreshTokens = new Map<string, { clientId: string; scope?: string }>();
   const knobs = {
     /** Scope the MCP endpoint requires (403 insufficient_scope otherwise). */
     requiredScope: undefined as string | undefined,
     /** Delay token responses (ms), e.g. to test cancellation. */
     tokenDelay: 0,
+    /** Refresh responses wait for this gate, so a test can decide when they'd land. */
+    refreshGate: undefined as Promise<void> | undefined,
+    /** Answer the next MCP request with 401, whatever its token. */
+    rejectNext: false,
     /** Delay registration responses (ms). */
     registerDelay: 0,
     /** Next token response is this OAuth error. */
@@ -66,7 +70,7 @@ export async function startMockServer(options: MockOptions = {}) {
     const access_token = `at-${randomUUID()}`;
     const refresh_token = `rt-${randomUUID()}`;
     accessTokens.set(access_token, { scope });
-    refreshTokens.set(refresh_token, clientId);
+    refreshTokens.set(refresh_token, { clientId, scope });
     return {
       access_token,
       refresh_token,
@@ -142,16 +146,20 @@ export async function startMockServer(options: MockOptions = {}) {
         return json(res, 200, issue(code.clientId, code.scope));
       }
       if (params.get("grant_type") === "refresh_token") {
-        const clientId = refreshTokens.get(params.get("refresh_token")!);
-        if (!clientId || clientId !== params.get("client_id"))
+        await knobs.refreshGate;
+        if (res.destroyed) return;
+        const grant = refreshTokens.get(params.get("refresh_token")!);
+        if (!grant || grant.clientId !== params.get("client_id"))
           return json(res, 400, { error: "invalid_grant" });
-        return json(res, 200, issue(clientId));
+        return json(res, 200, issue(grant.clientId, grant.scope));
       }
       return json(res, 400, { error: "unsupported_grant_type" });
     }
     if (path === "/mcp") {
       const token = req.headers.authorization?.replace(/^Bearer /, "");
-      const grant = token ? accessTokens.get(token) : undefined;
+      const rejected = knobs.rejectNext;
+      knobs.rejectNext = false;
+      const grant = token && !rejected ? accessTokens.get(token) : undefined;
       const metadata = `${base}/.well-known/oauth-protected-resource/mcp`;
       if (!grant)
         return json(

@@ -767,24 +767,74 @@ describe("credentials", () => {
     const client = newClient();
     await auth.connect(client);
     mock.expireAccessTokens();
-    mock.knobs.tokenDelay = 300;
+    let release!: () => void;
+    mock.knobs.refreshGate = new Promise((resolve) => (release = resolve));
     const before = mock.tokenRequests.length;
     const refreshing = client.listTools().catch((e) => e);
     while (mock.tokenRequests.length === before) await sleep(10);
-    const invalidatedAt = Date.now();
     await auth.invalidateCredentials!("tokens");
+    // Settles while the refresh response is still held back: the request was aborted.
     const error = await refreshing;
-    expect(Date.now() - invalidatedAt).toBeLessThan(200); // aborted, not answered
     expect(error).not.toBeInstanceOf(UnauthorizedError); // no browser for a sign-out
-    // Fresh authorization on the same transport; its exchange overlaps where the stale
-    // refresh response would have landed.
+    // Fresh authorization on the same transport, then let the stale response go.
     await expect(client.listTools()).rejects.toBeInstanceOf(UnauthorizedError);
     await auth.connect(client);
     expect(mock.tokenRequests.at(-1)!.get("grant_type")).toBe(
       "authorization_code",
     );
-    await sleep(300);
+    release();
+    await sleep(20);
     expect(await client.listTools()).toEqual({ tools: [] });
+  });
+
+  test("a refresh released during a step-up exchange on the same transport can't break it", async () => {
+    const store = memory();
+    const auth = setup({ store });
+    const client = newClient();
+    await auth.connect(client);
+    let release!: () => void;
+    mock.knobs.refreshGate = new Promise((resolve) => (release = resolve));
+    mock.knobs.rejectNext = true;
+    const before = mock.tokenRequests.length;
+    const refreshing = client.listTools().catch((e) => e);
+    while (mock.tokenRequests.length === before) await sleep(10);
+    mock.knobs.requiredScope = "admin";
+    await expect(client.listTools()).rejects.toBeInstanceOf(UnauthorizedError);
+    mock.knobs.tokenDelay = 100;
+    const stepUp = auth.connect(client);
+    while (
+      mock.tokenRequests.at(-1)!.get("grant_type") !== "authorization_code"
+    )
+      await sleep(5);
+    release(); // while the code exchange is pending
+    await stepUp;
+    await refreshing;
+    expect(JSON.parse(store.value!).tokens.scope).toContain("admin");
+    expect(await client.listTools()).toEqual({ tools: [] });
+  });
+
+  test("a newer step-up supersedes a slower refresh from another transport", async () => {
+    const store = memory();
+    const auth = setup({ store });
+    const [a, b] = [newClient(), newClient()];
+    await auth.connect(a);
+    await auth.connect(b);
+    let release!: () => void;
+    mock.knobs.refreshGate = new Promise((resolve) => (release = resolve));
+    mock.knobs.rejectNext = true;
+    const before = mock.tokenRequests.length;
+    const refreshing = a.listTools().catch((e) => e);
+    while (mock.tokenRequests.length === before) await sleep(10);
+    mock.knobs.requiredScope = "admin";
+    await expect(b.listTools()).rejects.toBeInstanceOf(UnauthorizedError);
+    await auth.connect(b); // step-up: tokens now carry "admin"
+    // The stale refresh is aborted and its request succeeds with the newer tokens.
+    expect(await refreshing).toEqual({ tools: [] });
+    release(); // where the stale refresh response would have landed
+    await sleep(20);
+    expect(JSON.parse(store.value!).tokens.scope).toContain("admin");
+    expect(await b.listTools()).toEqual({ tools: [] });
+    expect(mock.authorizeRequests).toHaveLength(2); // initial + step-up only
   });
 
   for (const scope of ["client", "all"] as const)
