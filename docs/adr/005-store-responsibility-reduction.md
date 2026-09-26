@@ -1,36 +1,35 @@
-# ADR-005: OAuthStore Responsibility Reduction
+# ADR-005: Credential Store Holds Opaque Text
 
 **Status:** Accepted
 **Date:** 2025-01-25
-**Tags:** api, storage, simplification
+**Updated:** 2026-09-26 (v3 rewrite)
+**Tags:** api, storage, mcp
 
 ## Problem
 
-The store was accumulating OAuth flow state (session, nonce, state parameter) alongside persistent data (tokens, client registration). This blurred the line between "what survives a crash" and "what's ephemeral by design," making the API harder to reason about and test.
+- v2 stores had typed methods per record (tokens, client, verifier) plus a branded `OAuthStore`, so every custom store (keychain, database) re-implemented serialization and schema details.
+- A store shared between MCP servers could hand audience-bound tokens (RFC 8707) to the wrong server; the SDK reads ctx-less `tokens()` before discovery, so the issuer can't disambiguate.
 
 ## Decision
 
-The store is responsible **only** for data that must survive process restarts:
-
-| Stored                | Not Stored        |
-| --------------------- | ----------------- |
-| `tokens`              | `state` parameter |
-| `client` (DCR result) | `nonce`           |
-| `codeVerifier` (PKCE) | session objects   |
-
-The `codeVerifier` is the sole flow artifact persisted—it enables completing an in-progress authorization if the process crashes after browser launch but before callback.
+- `CredentialStore` is `{ load(): Promise<string | undefined>; save(value: string | undefined): Promise<void> }`. A keychain store is four lines.
+- The adapter owns the format: `{ version: 1, serverUrl, client?, tokens? }` with the SDK's issuer-stamped `StoredOAuthClientInformation`/`StoredOAuthTokens` preserved verbatim. Unparseable text, an unknown version, or a document for another `serverUrl` throws; nothing is silently discarded.
+- One credential slot per store (one client, one token set). The SDK's issuer stamps (`discardIfIssuerMismatch`) already reject credentials from a different authorization server; a new registration replaces the slot and drops tokens issued to the old client.
+- Flow state (state, PKCE verifier, discovery state, callback) is memory-only.
+- `fileStore(path)` needs an absolute path (no `~` expansion, no cwd-relative credentials); writes are atomic with 0600/0700 permissions. The default store is memory.
 
 ## Alternatives (brief)
 
-- **Full session persistence** — Would enable crash-recovery at any point, but adds complexity for a rare edge case. Users can simply restart the flow.
-- **No verifier persistence** — Simpler, but loses the most common crash scenario (user switches apps, process dies).
+- **Typed record methods (v2)** — more surface for every store author; the adapter must own migration anyway.
+- **Per-issuer maps** — the SDK's issuer stamps already cover authorization-server switches for a single-slot provider.
+- **One store for many servers** — audience-bound tokens make sharing wrong even under one issuer.
 
 ## Impact
 
-- Positive: Cleaner mental model; store implementations are trivial to write and test.
-- Negative: If the process crashes before `codeVerifier` is saved, the flow must restart. This is acceptable—it's a sub-second window.
+- Positive: custom stores are trivial; format changes stay inside the adapter.
+- Negative/Risks: one store per MCP server; `serverUrl` mismatches fail loudly by design.
 
 ## Links
 
-- Code: `src/storage/`, `src/mcp-types.ts`
-- Related: ADR-002 (Immediate Token Exchange)
+- Code: `src/mcp/credential-store.ts`, `src/mcp/file-store.ts`
+- Related: [ADR-006](./006-mcp-sdk-owns-oauth.md)
