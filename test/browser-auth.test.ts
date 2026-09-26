@@ -165,6 +165,26 @@ describe("connect()", () => {
     expect(JSON.parse(store.value!).tokens.access_token).not.toBe("expired");
   });
 
+  test("a revoked refresh token falls back to the browser in the same call", async () => {
+    const store = memory();
+    await setup({ store }).connect(newClient());
+    const doc = JSON.parse(store.value!);
+    doc.tokens.access_token = "expired";
+    doc.tokens.refresh_token = "revoked";
+    store.value = JSON.stringify(doc);
+
+    // The SDK answers invalid_grant with invalidateCredentials("tokens"), then reauthorizes.
+    const warn = console.warn;
+    console.warn = () => {};
+    try {
+      await setup({ store }).connect(newClient());
+    } finally {
+      console.warn = warn;
+    }
+    expect(mock.authorizeRequests).toHaveLength(2);
+    expect(JSON.parse(store.value!).tokens.access_token).not.toBe("expired");
+  });
+
   test("discovery written by another attempt doesn't leak into a pending flow", async () => {
     let auth!: ReturnType<typeof setup>;
     auth = setup({
@@ -948,6 +968,29 @@ describe("credentials", () => {
     await sleep(50);
     expect(launched).toBe(false);
     await expect(fetch(redirectUri)).rejects.toThrow(); // no orphan listener
+  });
+
+  test("sign-out during discovery ends connect(), despite the SDK's fallback", async () => {
+    let launched = false;
+    const store = memory();
+    const auth = setup({ store, launch: () => void (launched = true) });
+    let signedOut = false;
+    const connecting = auth.connect(newClient(), {
+      transportOptions: {
+        fetch: async (url, init) => {
+          if (String(url).includes("oauth-protected-resource") && !signedOut) {
+            signedOut = true;
+            await auth.invalidateCredentials("all");
+            init?.signal?.throwIfAborted(); // the SDK swallows this and falls back
+          }
+          return fetch(url, init);
+        },
+      },
+    });
+    await expect(connecting).rejects.toThrow(/invalidated/);
+    expect(signedOut).toBe(true);
+    expect(launched).toBe(false);
+    expect(store.value).toBeUndefined();
   });
 
   test("sign-out ends a connect() waiting for the browser", async () => {

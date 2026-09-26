@@ -187,10 +187,20 @@ class Session {
   /** Generation of the last invalidation: older passes fail as signed out, newer as superseded. */
   #signedOut = 0;
   #invalidation = new AbortController();
+  #signOut = new AbortController();
 
   /** Aborted whenever the generation advances: connect() transports' OAuth requests end with it. */
   get invalidationSignal(): AbortSignal {
     return this.#invalidation.signal;
+  }
+
+  /**
+   * Aborted by the next sign-out (`"all"`). connect() captures it once per call, so
+   * a sign-out ends the whole call: the SDK retries some aborted requests (e.g. discovery
+   * fallbacks), which a per-request invalidationSignal would let through.
+   */
+  get signOutSignal(): AbortSignal {
+    return this.#signOut.signal;
   }
 
   constructor(
@@ -282,7 +292,7 @@ class Session {
 
   // The SDK calls state() only on the interactive path, right before saving the verifier.
   #reserve(owner: Owner): string {
-    if (owner.abandoned)
+    if (owner.abandoned || owner.signal?.aborted)
       throw new Error(
         "The connect() call that started this authorization has ended",
       );
@@ -525,6 +535,12 @@ class Session {
       this.#advance(new Error(INVALIDATED));
       this.#signedOut = this.#generation;
     }
+    // Only "all" is a sign-out; the SDK itself invalidates "client"/"tokens" to recover and
+    // retry within the same call (invalid_grant, invalid_client).
+    if (scope === "all") {
+      this.#signOut.abort(new Error(INVALIDATED));
+      this.#signOut = new AbortController();
+    }
     if (scope === "all" && this.flow && !this.flow.completing)
       this.end(this.flow);
     // A static client is configuration, not state: it survives every scope.
@@ -695,8 +711,11 @@ export function browserAuth(options: BrowserAuthOptions): BrowserAuth {
 
   const connect: BrowserAuth["connect"] = async (client, options = {}) => {
     const { transportOptions, ...connectOptions } = options;
-    const { signal } = connectOptions;
-    signal?.throwIfAborted();
+    connectOptions.signal?.throwIfAborted();
+    // The caller's signal or a sign-out ends this call (see Session.signOutSignal).
+    const signal = AbortSignal.any(
+      [connectOptions.signal, session.signOutSignal].filter((s) => s != null),
+    );
 
     await serialize(signal, async () => {
       for (let attempt = 0; ; attempt++) {
@@ -751,7 +770,7 @@ export function browserAuth(options: BrowserAuthOptions): BrowserAuth {
             owner.abandoned = true;
             if (flow?.owner === owner && !flow.completing) session.end(flow);
             // The SDK wraps an aborted handshake in SdkError; cancellation surfaces as its reason.
-            signal?.throwIfAborted();
+            signal.throwIfAborted();
             throw error;
           }
         }

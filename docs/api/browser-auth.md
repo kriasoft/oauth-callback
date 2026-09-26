@@ -84,7 +84,7 @@ Low-level, for transports you create. After the SDK throws `UnauthorizedError`, 
 
 ### Provider hooks
 
-The `OAuthClientProvider` members (`redirectUrl`, `clientMetadata`, `state()`, `tokens()`, `saveTokens()`, `redirectToAuthorization()`, `invalidateCredentials()`, …) are called by the SDK. Of these, only `invalidateCredentials("all")` is useful to call yourself: it clears the stored credentials, even unreadable ones. It doesn't close a live connection, so to sign out call `await client.close()` first.
+The `OAuthClientProvider` members (`redirectUrl`, `clientMetadata`, `state()`, `tokens()`, `saveTokens()`, `redirectToAuthorization()`, `invalidateCredentials()`, …) are called by the SDK. Of these, only `invalidateCredentials("all")` is useful to call yourself: it clears the stored credentials, even unreadable ones, and ends `connect()` calls in progress. It doesn't close a live connection, so to sign out call `await client.close()` first.
 
 ## Examples
 
