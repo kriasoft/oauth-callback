@@ -20,6 +20,17 @@ export interface CallbackPages {
   errorHtml?: string;
 }
 
+/** Validates page overrides up front; a non-string would only fail inside the request handler. */
+export function checkPages({
+  successHtml,
+  errorHtml,
+}: CallbackPages): CallbackPages {
+  for (const [name, html] of Object.entries({ successHtml, errorHtml }))
+    if (html !== undefined && typeof html !== "string")
+      throw new TypeError(`${name} must be a string`);
+  return { successHtml, errorHtml };
+}
+
 export interface CallbackListener {
   /** The redirect URI with the bound port (differs from the input only for port 0). */
   readonly url: URL;

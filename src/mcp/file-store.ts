@@ -7,10 +7,10 @@ import { dirname, isAbsolute } from "node:path";
 import type { CredentialStore } from "./credential-store.js";
 
 /**
- * Stores credentials in a file; on POSIX it is readable only by the current user (0600,
- * directory 0700). Writes are atomic (temp file + rename) and queued per instance, with no
- * cross-process locking: give each process or provider its own file. For production,
- * prefer the OS keychain via a custom {@link CredentialStore}.
+ * Stores credentials in a file; on POSIX it is readable only by the current user (0600;
+ * directories it creates are 0700). Writes are atomic (temp file + rename) and queued per
+ * instance, with no cross-process locking: give each process or provider its own file.
+ * For production, prefer the OS keychain via a custom {@link CredentialStore}.
  *
  * @param path Absolute path; `~` is not expanded. Use `path.join(os.homedir(), …)`.
  */

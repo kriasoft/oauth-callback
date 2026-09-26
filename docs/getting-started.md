@@ -148,7 +148,7 @@ try {
 }
 ```
 
-Invalid options and unsafe authorization URLs throw `TypeError`/`RangeError` before anything binds or opens. See [OAuthCallbackError](/api/oauth-callback-error).
+Invalid options and unsafe authorization URLs throw `TypeError`/`RangeError` before the browser opens (options and prebuilt URLs before anything binds). See [OAuthCallbackError](/api/oauth-callback-error).
 
 ## MCP servers
 

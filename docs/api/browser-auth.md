@@ -150,7 +150,11 @@ try {
   await client.connect(transport);
 } catch (error) {
   if (!(error instanceof UnauthorizedError)) throw error;
-  await auth.completeAuthorization(transport);
+  try {
+    await auth.completeAuthorization(transport);
+  } finally {
+    await transport.close(); // client.connect() won't close the old transport
+  }
   await client.connect(
     new StreamableHTTPClientTransport(serverUrl, { authProvider: auth }),
   );

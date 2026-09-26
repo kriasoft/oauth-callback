@@ -4,6 +4,7 @@
 import { randomBytes } from "node:crypto";
 import { openBrowser } from "./launch.js";
 import {
+  checkPages,
   isLoopbackHost,
   listenForCallback,
   parseRedirectUri,
@@ -273,7 +274,7 @@ function finishBuiltUrl(
  * });
  * ```
  * @throws {OAuthCallbackError} The authorization server returned an error.
- * @throws {TypeError} Invalid URL, redirect URI or option (before anything binds).
+ * @throws {TypeError} Invalid URL, redirect URI or option (before launch; for options and a prebuilt URL, before binding).
  * @throws The composed signal's `reason` on abort or timeout (`name === "TimeoutError"`).
  */
 export async function getAuthCode(
@@ -285,6 +286,7 @@ export async function getAuthCode(
   const timeout = checkTimeout(options.timeout);
   if (typeof launch !== "function")
     throw new TypeError("launch must be a function");
+  checkPages(options);
 
   const builder =
     typeof authorization === "function" ? authorization : undefined;

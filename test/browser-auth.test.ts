@@ -269,6 +269,57 @@ describe("connect()", () => {
     expect(mock.registrations).toHaveLength(1);
   });
 
+  test("the connect() signal bounds OAuth requests, not the SSE stream it outlives", async () => {
+    const controller = new AbortController();
+    const requests: { url: string; method?: string; signal?: AbortSignal }[] =
+      [];
+    const auth = setup();
+    await auth.connect(newClient(), {
+      signal: controller.signal,
+      transportOptions: {
+        fetch: (url, init) => {
+          requests.push({
+            url: String(url),
+            method: init?.method,
+            signal: init?.signal ?? undefined,
+          });
+          return fetch(url, init);
+        },
+      },
+    });
+    controller.abort();
+    const sse = requests.find(
+      (r) => r.url === mock.mcpUrl && r.method === "GET",
+    );
+    expect(sse).toBeDefined();
+    expect(sse!.signal?.aborted).not.toBe(true);
+    const oauth = requests.filter((r) => r.url !== mock.mcpUrl);
+    expect(oauth.every((r) => r.signal?.aborted)).toBe(true);
+  });
+
+  test("abort while the handshake stalls rejects promptly and frees the queue", async () => {
+    const auth = setup();
+    await auth.connect(newClient());
+    const controller = new AbortController();
+    const stalled = auth.connect(newClient(), {
+      signal: controller.signal,
+      transportOptions: {
+        fetch: (url, init) =>
+          String(init?.body).includes("notifications/initialized")
+            ? new Promise((_, reject) =>
+                init!.signal!.addEventListener("abort", () =>
+                  reject(init!.signal!.reason),
+                ),
+              )
+            : fetch(url, init),
+      },
+    });
+    await sleep(100);
+    controller.abort(new Error("cancelled"));
+    await expect(stalled).rejects.toThrow("cancelled");
+    await auth.connect(newClient());
+  });
+
   test("refuses to close a caller-owned transport", async () => {
     const auth = setup();
     const client = newClient();
@@ -357,6 +408,7 @@ describe("flow ownership", () => {
       /already in progress/,
     );
     await auth.completeAuthorization(transport);
+    await transport.close();
     const next = new StreamableHTTPClientTransport(new URL(mock.mcpUrl), {
       authProvider: auth,
     });
@@ -393,6 +445,19 @@ describe("flow ownership", () => {
       .catch((e) => e);
     expect(error.name).toBe("TimeoutError");
     expect(await auth.tokens()).toBeDefined(); // the exchange itself completed
+  });
+
+  test("an authorization URL with a duplicate client_id is refused", async () => {
+    const auth = setup();
+    await auth.saveClientInformation!({ client_id: "a", issuer: mock.base });
+    const url = new URL("https://as.example.com/authorize?response_type=code");
+    url.searchParams.set("redirect_uri", redirectUri);
+    url.searchParams.set("state", await auth.state!());
+    url.searchParams.append("client_id", "a");
+    url.searchParams.append("client_id", "b");
+    await expect(auth.redirectToAuthorization(url)).rejects.toThrow(
+      /client changed/,
+    );
   });
 
   test("completeAuthorization() without a pending flow throws", async () => {
@@ -469,6 +534,41 @@ describe("credentials", () => {
     expect(JSON.parse(store.value!).client.client_id).toBe("client-2");
   });
 
+  test("a registration without echoed redirect_uris still re-registers after a redirectUri change", async () => {
+    const store = memory();
+    await setup({ store }).saveClientInformation!({
+      client_id: "a",
+      issuer: mock.base,
+    });
+    const moved = setup({
+      store,
+      redirectUri: `http://127.0.0.1:${await freePort()}/callback`,
+    });
+    expect(await moved.clientInformation()).toBeUndefined();
+  });
+
+  for (const kind of ["dynamic", "static"])
+    test(`invalidateCredentials('all') during a token exchange wins (${kind} client)`, async () => {
+      mock.knobs.tokenDelay = 300;
+      const store = memory();
+      const auth = setup({
+        store,
+        ...(kind === "static" && {
+          clientName: undefined,
+          clientInformation: {
+            client_id: "static-client",
+            issuer: mock.base,
+          },
+        }),
+      });
+      const connecting = auth.connect(newClient()).catch((e) => e);
+      while (mock.tokenRequests.length === 0) await sleep(10);
+      await auth.invalidateCredentials!("all");
+      expect((await connecting).message).toMatch(/invalidated/);
+      expect(store.value).toBeUndefined();
+      expect(await auth.tokens()).toBeUndefined();
+    });
+
   test("invalidateCredentials('all') clears the store", async () => {
     const store = memory();
     const auth = setup({ store });
@@ -530,6 +630,7 @@ describe("credentials", () => {
       issuer: "https://as2",
     });
     expect(await auth.clientInformation()).toEqual({
+      redirect_uris: [redirectUri],
       client_id: "b",
       issuer: "https://as2",
     });
@@ -605,6 +706,9 @@ describe("options", () => {
       { ...valid, redirectUri: "https://127.0.0.1:1/cb" },
       { ...valid, clientName: undefined },
       { ...valid, clientInformation: { client_id: "x" } },
+      { ...valid, clientInformation: { client_id: "", issuer: "https://as" } },
+      { ...valid, successHtml: 1 },
+      { ...valid, errorHtml: {} },
       { ...valid, timeout: 0 },
       { ...valid, launch: true },
       { ...valid, store: {} },

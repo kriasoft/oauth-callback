@@ -21,7 +21,7 @@ async function staticClosure(entry: string, seen = new Map<string, string>()) {
   const code = await readFile(entry, "utf8");
   seen.set(entry, code);
   for (const [, spec] of code.matchAll(
-    /(?:^|[;\n])\s*(?:import|export)\b[^;("']*?from\s*"(\.[^"]+)"/g,
+    /(?:^|[;\n])\s*(?:import|export)\b[^;("']*?(?:from\s*)?["'](\.[^"']+)["']/g,
   ))
     await staticClosure(resolve(dirname(entry), spec!), seen);
   return seen;

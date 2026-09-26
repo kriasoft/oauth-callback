@@ -30,6 +30,7 @@ import {
 } from "../get-auth-code.js";
 import { openBrowser } from "../launch.js";
 import {
+  checkPages,
   isLoopbackHost,
   listenForCallback,
   parseRedirectUri,
@@ -98,7 +99,7 @@ export interface BrowserAuth extends OAuthClientProvider {
 /** Who reserved a flow: a transport created by `connect()`, or `EXTERNAL` (the provider itself). */
 interface Owner {
   transport?: StreamableHTTPClientTransport;
-  /** While set, the transport's `fetch` aborts with it: the `connect()` call, then the token exchange. */
+  /** While set, the transport's OAuth fetches abort with it: the `connect()` call, then the token exchange. */
   signal?: AbortSignal;
   /** Its `connect()` attempt failed: late SDK hooks must not start a flow or open a browser. */
   abandoned?: boolean;
@@ -121,6 +122,8 @@ interface Flow {
   verifier?: string;
   failed: boolean;
   completing: boolean;
+  /** Credentials were invalidated during the exchange: its tokens must not be saved. */
+  revoked?: boolean;
 }
 
 interface Config {
@@ -164,12 +167,16 @@ class Session {
       state: () => this.#reserve(owner),
       clientInformation: () => this.#clientInformation(),
       tokens: () => this.#tokens(),
-      saveTokens: (tokens) =>
-        credentials.update((c) => {
+      saveTokens: (tokens) => {
+        // Logout during a token exchange wins; this rejects the exchange's finishAuth().
+        if (this.flow?.revoked)
+          throw new Error("Credentials were invalidated during authorization");
+        return credentials.update((c) => {
           const client = config.staticClient ?? c.client;
           if (!client) throw new Error("OAuth tokens without a client");
           return { ...c, tokens: { ...tokens, client_id: client.client_id } };
-        }),
+        });
+      },
       redirectToAuthorization: (url) => this.#redirect(owner, url),
       saveCodeVerifier: (verifier) => {
         // Bound to the flow its owner reserved: a late write from an abandoned attempt
@@ -256,7 +263,12 @@ class Session {
         );
       // A concurrent registration that replaced the client must not be exchanged under.
       const client = await this.#clientInformation();
-      if (!client || params.get("client_id") !== client.client_id)
+      const clientIds = params.getAll("client_id");
+      if (
+        !client ||
+        clientIds.length !== 1 ||
+        clientIds[0] !== client.client_id
+      )
         throw new Error(
           "The OAuth client changed while authorization was starting",
         );
@@ -272,6 +284,12 @@ class Session {
         this.config.pages,
       );
       flow.listener = listener;
+      // Cancellation may have landed while binding: never launch for a dead attempt.
+      if (owner.abandoned || owner.signal?.aborted)
+        throw new Error(
+          "The connect() call that started this authorization has ended",
+        );
+      flow.signal.throwIfAborted();
       void listener.callback.then(() => listener.close());
       // Launcher and callback race into one retained result; the SDK must get control back
       // now (it throws UnauthorizedError after this returns), so the launcher isn't awaited.
@@ -370,9 +388,10 @@ class Session {
       );
     this.#savingClient++;
     try {
-      // Tokens belong to the client (and issuer) that obtained them.
+      // Tokens belong to the client (and issuer) that obtained them. redirect_uris records
+      // what was registered even if the AS didn't echo it, so a changed redirectUri re-registers.
       await this.credentials.update(({ tokens }) => ({
-        client,
+        client: { redirect_uris: [this.config.redirect.href], ...client },
         tokens:
           tokens?.client_id === client.client_id &&
           tokens.issuer === client.issuer
@@ -390,6 +409,8 @@ class Session {
     if ((scope === "verifier" || scope === "all") && this.flow)
       this.flow.verifier = undefined;
     if (scope === "discovery" || scope === "all") this.#discovery = undefined;
+    if ((scope === "all" || scope === "tokens") && this.flow?.completing)
+      this.flow.revoked = true;
     if (scope === "all" && this.flow && !this.flow.completing)
       this.end(this.flow);
     // A static client is configuration, not state: it survives every scope.
@@ -427,7 +448,10 @@ function resolveConfig(options: BrowserAuthOptions): Config {
     );
   const redirect = parseRedirectUri(options.redirectUri);
   if (clientInformation !== undefined) {
-    if (typeof clientInformation?.client_id !== "string")
+    if (
+      typeof clientInformation?.client_id !== "string" ||
+      !clientInformation.client_id
+    )
       throw new TypeError("clientInformation.client_id is required");
     if (
       typeof clientInformation.issuer !== "string" ||
@@ -467,7 +491,7 @@ function resolveConfig(options: BrowserAuthOptions): Config {
     staticClient: clientInformation,
     launch,
     timeout: checkTimeout(options.timeout),
-    pages: { successHtml: options.successHtml, errorHtml: options.errorHtml },
+    pages: checkPages(options),
   };
 }
 
@@ -515,14 +539,19 @@ export function browserAuth(options: BrowserAuthOptions): BrowserAuth {
     }
   }
 
-  /** The caller's fetch, cancellable through `owner.signal` (bounds discovery, DCR and exchange). */
+  /**
+   * The caller's fetch, with OAuth traffic (discovery, DCR, token exchange) cancellable
+   * through `owner.signal`. MCP traffic always targets `serverUrl` exactly and is left alone:
+   * a long-lived SSE stream or a concurrent request must not inherit a connect() or flow signal.
+   */
   function cancellable(
     owner: Owner,
     base: FetchLike = (url, init) => fetch(url, init),
   ): FetchLike {
     return (url, init) => {
       const signal = owner.signal;
-      if (!signal) return base(url, init);
+      if (!signal || String(url) === config.serverUrl.href)
+        return base(url, init);
       return base(url, {
         ...init,
         signal: init?.signal ? AbortSignal.any([init.signal, signal]) : signal,
@@ -567,7 +596,9 @@ export function browserAuth(options: BrowserAuthOptions): BrowserAuth {
         owned.add(transport);
 
         try {
-          await client.connect(transport, connectOptions);
+          // The SDK doesn't forward the signal to every handshake request (e.g. the
+          // initialized notification), and cancellable() leaves MCP traffic alone.
+          await raceSignal(client.connect(transport, connectOptions), signal);
           owner.signal = undefined; // the connection outlives this call's signal
           return;
         } catch (error) {

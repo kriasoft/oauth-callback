@@ -7,7 +7,7 @@ description: How OAuth Callback handles redirect URIs, state, callback validatio
 
 ## The redirect URI
 
-The redirect URI is the one address option. It must be `http:` on `127.0.0.1`, `[::1]` or `localhost`, with no fragment, credentials, duplicate query keys, or callback parameters (`state`, `code`, `error`, `error_description`, `error_uri`, `iss`) in its query. The library listens on it, and the authorization request must carry the same value.
+The redirect URI is the one address option. It must be `http:` on `127.0.0.1`, `[::1]` or `localhost`, with no fragment, credentials, duplicate query keys, or callback parameters (`state`, `code`, `error`, `error_description`, `error_uri`, `iss`) in its query. The library listens on it; when the authorization request carries `redirect_uri`, it must be the same value.
 
 `getAuthCode()` accepts the authorization request in two forms:
 
@@ -75,13 +75,13 @@ Every authorization URL is checked before any launcher sees it:
 - `https:`, or `http:` on a loopback host
 - no fragment or credentials
 - `state`, `redirect_uri`, `response_type`, `response_mode`, `request` and `request_uri` at most once
-- `response_type` exactly `code`, `response_mode` absent or `query`
+- `response_type` absent or `code`, `response_mode` absent or `query`
 
-Failures throw `TypeError` before anything binds or opens.
+Failures throw `TypeError`: for a prebuilt URL before anything binds, for a builder's URL before launch (the listener binds first).
 
 ## Launching the browser
 
-`launch` receives the final URL, with `redirect_uri` and `state` in place. The default opens the system browser; the launcher is bundled and loaded lazily, so flows with a custom `launch` never load it.
+`launch` receives the final URL: with `redirect_uri` and `state` in place, except a builder's PAR/JAR URL, which carries them in the pushed request. The default opens the system browser; the launcher is bundled and loaded lazily, so flows with a custom `launch` never load it.
 
 The launcher's fulfillment is ignored: resolving doesn't mean the user finished. A throw or rejection fails the flow with that error.
 

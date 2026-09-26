@@ -279,6 +279,13 @@ describe("options", () => {
     ).rejects.toThrow(TypeError);
   });
 
+  test("successHtml and errorHtml must be strings", async () => {
+    for (const pages of [{ successHtml: 1 }, { errorHtml: {} }])
+      await expect(getAuthCode(build, pages as never)).rejects.toThrow(
+        TypeError,
+      );
+  });
+
   test("launch accepts functions returning anything", () => {
     // Type-level: both must compile.
     const open = (_: string) => Promise.resolve({ pid: 1 });

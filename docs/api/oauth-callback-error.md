@@ -61,13 +61,13 @@ OpenID Connect adds codes such as `login_required`, `consent_required` and `inte
 
 `getAuthCode()` signals everything else with standard errors:
 
-| Failure          | Error                                              |
-| ---------------- | -------------------------------------------------- |
-| Timeout          | `DOMException` with `name === "TimeoutError"`      |
-| Abort            | Your signal's `reason`                             |
-| Invalid input    | `TypeError` or `RangeError`, before anything binds |
-| Launcher failure | Whatever your `launch` threw or rejected with      |
-| Bind failure     | The listener error, e.g. `EADDRINUSE`              |
+| Failure          | Error                                                 |
+| ---------------- | ----------------------------------------------------- |
+| Timeout          | `DOMException` with `name === "TimeoutError"`         |
+| Abort            | Your signal's `reason`                                |
+| Invalid input    | `TypeError` or `RangeError`, before the browser opens |
+| Launcher failure | Whatever your `launch` threw or rejected with         |
+| Bind failure     | The listener error, e.g. `EADDRINUSE`                 |
 
 ```ts
 try {
