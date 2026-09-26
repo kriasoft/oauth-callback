@@ -21,18 +21,18 @@ Requires `@modelcontextprotocol/client` 2.1+.
 
 ## Options
 
-| Option              | Type                                                | Default        | Description                                                                                    |
-| ------------------- | --------------------------------------------------- | -------------- | ---------------------------------------------------------------------------------------------- |
-| `serverUrl`         | `string \| URL`                                     | required       | The one MCP server this provider and its store serve (`https:`, or `http:` on a loopback host) |
-| `redirectUri`       | `string \| URL`                                     | required       | Fixed loopback redirect URI, e.g. `http://127.0.0.1:8765/callback`. No port 0                  |
-| `clientName`        | `string`                                            | —              | Client name for Dynamic Client Registration. Required unless `clientInformation` is set        |
-| `clientInformation` | `StoredOAuthClientInformation & { issuer: string }` | —              | Pre-registered client; disables DCR                                                            |
-| `clientMetadata`    | `Partial<OAuthClientMetadata>`                      | —              | Extra DCR metadata, e.g. `scope` or `grant_types`                                              |
-| `store`             | `CredentialStore`                                   | memory         | Credential persistence                                                                         |
-| `launch`            | `(url: URL) => unknown`                             | system browser | Opens the URL. Fulfillment is ignored; a throw or rejection fails the flow                     |
-| `timeout`           | `number`                                            | `300000`       | Milliseconds for one authorization, through token exchange; integer in [1, 2³¹−1]              |
-| `successHtml`       | `string`                                            | neutral page   | Static HTML after a successful callback                                                        |
-| `errorHtml`         | `string`                                            | neutral page   | Static HTML after an error callback                                                            |
+| Option              | Type                                                | Default        | Description                                                                                                                                                                                 |
+| ------------------- | --------------------------------------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `serverUrl`         | `string \| URL`                                     | required       | The one MCP server this provider and its store serve (`https:`, or `http:` on a loopback host)                                                                                              |
+| `redirectUri`       | `string \| URL`                                     | required       | Fixed loopback redirect URI, e.g. `http://127.0.0.1:8765/callback`. No port 0                                                                                                               |
+| `clientName`        | `string`                                            | —              | Client name for Dynamic Client Registration. Required unless `clientInformation` is set                                                                                                     |
+| `clientInformation` | `StoredOAuthClientInformation & { issuer: string }` | —              | Pre-registered client; disables DCR                                                                                                                                                         |
+| `clientMetadata`    | `Partial<OAuthClientMetadata>`                      | —              | Extra DCR metadata, e.g. `scope` or `grant_types`                                                                                                                                           |
+| `store`             | `CredentialStore`                                   | memory         | Credential persistence                                                                                                                                                                      |
+| `launch`            | `(url: URL) => unknown`                             | system browser | Opens the URL. Fulfillment is ignored; a throw or rejection fails the flow                                                                                                                  |
+| `timeout`           | `number`                                            | `300000`       | Milliseconds for one authorization, integer in [1, 2³¹−1]. `connect()` aborts its OAuth requests at the deadline; `completeAuthorization()` can't interrupt your transport's `finishAuth()` |
+| `successHtml`       | `string`                                            | neutral page   | Static HTML after a successful callback                                                                                                                                                     |
+| `errorHtml`         | `string`                                            | neutral page   | Static HTML after an error callback                                                                                                                                                         |
 
 Notes:
 
@@ -80,7 +80,7 @@ Low-level, for transports you create. After the SDK throws `UnauthorizedError`, 
 
 ### Provider hooks
 
-The `OAuthClientProvider` members (`redirectUrl`, `clientMetadata`, `state()`, `tokens()`, `saveTokens()`, `redirectToAuthorization()`, `invalidateCredentials()`, …) are called by the SDK. Of these, only `invalidateCredentials("all")` is useful to call yourself: it signs out by clearing the store.
+The `OAuthClientProvider` members (`redirectUrl`, `clientMetadata`, `state()`, `tokens()`, `saveTokens()`, `redirectToAuthorization()`, `invalidateCredentials()`, …) are called by the SDK. Of these, only `invalidateCredentials("all")` is useful to call yourself: it clears the stored credentials. It doesn't close a live connection, so to sign out call `await client.close()` first.
 
 ## Examples
 

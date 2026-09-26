@@ -75,4 +75,4 @@ SDK types (`Client`, `OAuthClientProvider`, `OAuthClientMetadata`, `Unauthorized
 
 ## Runtimes
 
-Node.js 22+, Deno 2 and Bun 1.2+. Zero runtime dependencies.
+Node.js 22+, Deno 2 and Bun 1.2+. Zero runtime dependencies. `oauth-callback/mcp` additionally depends on the runtime support of `@modelcontextprotocol/client`.

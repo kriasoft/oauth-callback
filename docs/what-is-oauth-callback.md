@@ -38,7 +38,7 @@ sequenceDiagram
 
 - **Redirect URI.** Binds `http://127.0.0.1:<free port>/callback` by default and calls your builder with it, so you never pick a port. A fixed `redirectUri` (including `localhost` or `[::1]`) works too.
 - **State.** Every flow has one. Only a callback with exactly that `state` and an unambiguous `code` or `error` completes the flow; anything else gets a 400 and the flow keeps waiting.
-- **URL validation.** The authorization URL must be `https:` (or loopback `http:`), with `response_type=code` and a query response mode. Unsafe URLs never reach a browser.
+- **URL validation.** The authorization URL must be `https:` (or loopback `http:`), with `response_type` absent or `code` and a query response mode. Unsafe URLs never reach a browser.
 - **Browser.** Opens the system browser by default, or hands the URL to your `launch` function (headless, SSH, QR codes, tests).
 - **Pages.** The browser sees a neutral page that never renders callback data, sent with `Content-Security-Policy`, `Cache-Control: no-store`, `Referrer-Policy: no-referrer` and `X-Content-Type-Options: nosniff`.
 - **Cleanup.** A timeout (5 minutes by default) and an optional `AbortSignal` bound the flow; the listener always closes.

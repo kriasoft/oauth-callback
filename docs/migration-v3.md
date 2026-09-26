@@ -40,7 +40,7 @@ params.get("state");
 Behavior changes:
 
 - **State is always present.** A URL without `state` gets one appended; callbacks must echo it.
-- **URLs are validated before launch.** `https:` (or loopback `http:`), no fragment or credentials, `response_type=code`, `response_mode=query` if present. Prebuilt PAR/JAR URLs are rejected — use the builder.
+- **URLs are validated before launch.** `https:` (or loopback `http:`), no fragment or credentials, `response_type` and `response_mode`, if present, must be `code` and `query`. Prebuilt PAR/JAR URLs are rejected — use the builder.
 - **Default host is `127.0.0.1`**, not `localhost` (RFC 8252 §8.3). `localhost` redirect URIs still work.
 - **Register the loopback redirect** your provider expects, e.g. `http://127.0.0.1/callback` for providers that allow any loopback port (RFC 8252 §7.3), or a fixed `http://127.0.0.1:8765/callback` with `redirectUri`.
 
@@ -90,7 +90,7 @@ await auth.connect(client);
 | DCR client name fixed                | `clientName` (required unless `clientInformation`)                                 |
 | `clientId`, `clientSecret`           | `clientInformation: { client_id, client_secret?, issuer }`                         |
 | `scope`                              | `clientMetadata: { scope }`; the server's challenge and metadata take priority     |
-| `authTimeout`                        | `timeout` (one flow, through token exchange)                                       |
+| `authTimeout`                        | `timeout` (one flow; `connect()` aborts its OAuth requests at the deadline)        |
 | `store: TokenStore`, `storeKey`      | `store: CredentialStore` (`load()`/`save(text)`), one per server                   |
 | `inMemoryStore()`                    | default                                                                            |
 | `fileStore()` → `~/.mcp/tokens.json` | `fileStore(absolutePath)`, no default path                                         |

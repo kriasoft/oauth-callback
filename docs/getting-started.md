@@ -192,7 +192,7 @@ bun run example:notion   # Notion MCP server with dynamic client registration
 
 **The flow times out.** Nothing delivered a callback with the right `state` in time. Check that the browser reached the redirect URI and that the provider returns the `state` it received.
 
-**`TypeError: Invalid authorization URL`.** The URL must be `https:` (or loopback `http:`), without fragment or credentials, with `response_type=code` and `response_mode` absent or `query`.
+**`TypeError: Invalid authorization URL`.** The URL must be `https:` (or loopback `http:`), without fragment or credentials, with `response_type` absent or `code` and `response_mode` absent or `query`.
 
 ## Next steps
 

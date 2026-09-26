@@ -9,7 +9,7 @@
  */
 
 import { $ } from "bun";
-import { rm } from "node:fs/promises";
+import { readFile, rm, writeFile } from "node:fs/promises";
 
 export async function bundle(outdir: string) {
   const result = await Bun.build({
@@ -25,8 +25,32 @@ export async function bundle(outdir: string) {
   return result.outputs;
 }
 
+/**
+ * License texts of the packages bundled into `outputs` (MIT requires shipping the notice).
+ * Bun marks each inlined module with a `// node_modules/<package>/...` comment.
+ */
+export async function thirdPartyNotices(outputs: { path: string }[]) {
+  const names = new Set<string>();
+  for (const { path } of outputs)
+    for (const [, name] of (await readFile(path, "utf8")).matchAll(
+      /^\/\/ node_modules\/((?:@[^/]+\/)?[^/]+)\//gm,
+    ))
+      names.add(name!);
+  const notices = await Promise.all(
+    [...names].sort().map(async (name) => {
+      const license = await readFile(`node_modules/${name}/license`, "utf8");
+      return `## ${name}\n\n${license.trim()}\n`;
+    }),
+  );
+  return `# Third-party licenses\n\nBundled into the default browser launcher chunk.\n\n${notices.join("\n")}`;
+}
+
 if (import.meta.main) {
   await rm("dist", { recursive: true, force: true });
-  await bundle("dist");
+  const outputs = await bundle("dist");
+  await writeFile(
+    "dist/THIRD_PARTY_LICENSES.md",
+    await thirdPartyNotices(outputs),
+  );
   await $`tsc -p tsconfig.build.json`;
 }

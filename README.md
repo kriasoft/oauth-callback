@@ -171,7 +171,7 @@ const store: CredentialStore = {
 };
 ```
 
-Use one store per MCP server. Log out with `await auth.invalidateCredentials("all")`.
+Use one store per MCP server. To sign out, close the client, then clear the credentials: `await client.close(); await auth.invalidateCredentials("all")`.
 
 ## Security
 
@@ -185,6 +185,8 @@ Use one store per MCP server. Log out with `await auth.invalidateCredentials("al
 - **Node.js** 22+
 - **Bun** 1.2+
 - **Deno** 2: `--allow-net` (listener), `--allow-run` (default launcher), `--allow-read`/`--allow-write` (`fileStore`)
+
+These cover `getAuthCode()` and `fileStore()`, which CI smoke-tests on each minimum version. `browserAuth()` additionally depends on the runtime support of `@modelcontextprotocol/client`.
 
 ## Examples
 

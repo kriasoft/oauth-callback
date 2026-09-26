@@ -155,7 +155,7 @@ Key rules:
 - **Fixed redirect URI.** `redirectUri` is required and can't use port 0: Dynamic Client Registration registers it.
 - **One flow at a time.** A provider runs one interactive authorization at a time, from `state()` until its token exchange settles. Overlapping attempts fail fast instead of merging: `UnauthorizedError` on transports `connect()` created, a plain `Error` on your own transports, where only the originating transport may complete a flow.
 - **Same transport.** A flow completes on the transport that received the 401/403, which holds the scope and resource metadata the exchange needs.
-- **`timeout`** bounds one flow, through the token exchange.
+- **`timeout`** bounds one flow. `connect()` aborts its OAuth requests (discovery, registration, token exchange) at the deadline; `completeAuthorization()` can't interrupt your transport's `finishAuth()`, so give that transport a bounded `fetch`.
 
 `connect(client)` resolves once the client is connected. For a client it already connected it is a no-op, after completing any pending step-up flow, so it is safe to call again on `UnauthorizedError`. It never closes a transport it didn't create. For your own transports, use `completeAuthorization(transport)`.
 
@@ -171,7 +171,7 @@ Use one store per MCP server: tokens are audience-bound ([RFC 8707](https://www.
 
 ## Runtimes
 
-One `node:http` implementation serves Node.js 22+, Deno 2 and Bun 1.2+. The package has zero runtime dependencies.
+One `node:http` implementation serves Node.js 22+, Deno 2 and Bun 1.2+. The package has zero runtime dependencies. `browserAuth()` additionally depends on the runtime support of `@modelcontextprotocol/client`.
 
 ## Further reading
 

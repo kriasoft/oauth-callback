@@ -48,3 +48,6 @@ docs/.vitepress/cache
 
 # Deno (runtime smoke test)
 deno.lock
+
+# local scratch
+/tmp/

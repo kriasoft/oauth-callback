@@ -6,7 +6,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import pkg from "../package.json";
-import { bundle } from "../scripts/build";
+import { bundle, thirdPartyNotices } from "../scripts/build";
 
 let outdir: string;
 beforeAll(async () => {
@@ -43,6 +43,15 @@ test("root entry stays small and never loads MCP code or `open` eagerly", async 
 test("MCP entry keeps the SDK external", async () => {
   const code = await readFile(join(outdir, "mcp/index.js"), "utf8");
   expect(code).toContain('from "@modelcontextprotocol/client"');
+});
+
+test("bundled packages ship their license notices", async () => {
+  const outputs = await Array.fromAsync(
+    new Bun.Glob("**/*.js").scan({ cwd: outdir, absolute: true }),
+  );
+  const notices = await thirdPartyNotices(outputs.map((path) => ({ path })));
+  expect(notices).toContain("## open\n");
+  expect(notices).toContain("Sindre Sorhus");
 });
 
 test("zero runtime dependencies", () => {

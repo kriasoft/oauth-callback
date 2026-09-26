@@ -114,7 +114,7 @@ interface BrowserAuthOptions {
   store?: CredentialStore;
   /** Opens the URL; only a rejection fails the flow. */
   launch?: (url: URL) => unknown;
-  /** Milliseconds for one authorization, through token exchange. Default 300_000. */
+  /** Milliseconds for one authorization. `connect()` aborts its OAuth requests at the deadline; bound your own transport's fetch. Default 300_000. */
   timeout?: number;
   successHtml?: string;
   errorHtml?: string;
