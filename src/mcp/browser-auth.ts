@@ -52,7 +52,7 @@ export interface BrowserAuthOptions {
   redirectUri: string | URL;
   /** Client name for Dynamic Client Registration; required unless `clientInformation` is set. */
   clientName?: string;
-  /** Pre-registered client. `issuer` is the `authorization_servers` entry of the server's protected-resource metadata. */
+  /** Pre-registered client, instead of `clientName`. `issuer` is the `authorization_servers` entry of the server's protected-resource metadata. */
   clientInformation?: StoredOAuthClientInformation & { issuer: string };
   /** Extra client metadata (e.g. `scope`, `grant_types`); redirect and response fields are set by the adapter. */
   clientMetadata?: Partial<
@@ -155,7 +155,7 @@ interface Config {
 }
 
 const INVALIDATED = "Credentials were invalidated during authorization";
-const SUPERSEDED = "A newer MCP authorization replaced the credentials";
+const SUPERSEDED = "The MCP credentials changed during authorization";
 
 /**
  * Shared state behind the provider and the per-transport views `connect()` creates.
@@ -186,7 +186,7 @@ class Session {
    * there must be serialized (documented on completeAuthorization()).
    */
   #generation = 0;
-  /** Generation of the last invalidation: older passes fail as signed out, newer as superseded. */
+  /** Generation of the last sign-out ("all"): older passes fail as signed out, newer as superseded. */
   #signedOut = 0;
   #invalidation = new AbortController();
   #signOut = new AbortController();
@@ -416,7 +416,7 @@ class Session {
         flow.result!,
         AbortSignal.any([combined, this.invalidationSignal]),
       );
-      if (flow.generation !== this.#generation) throw new Error(INVALIDATED);
+      this.#checkCurrent(flow.generation);
       // The new authorization supersedes OAuth work begun before it (e.g. a slow refresh
       // that would overwrite its tokens): abort it before the exchange's own requests start,
       // and again after, for work begun during the exchange. Never from a token save, which
@@ -490,6 +490,17 @@ class Session {
       throw new Error(
         "Can't register an OAuth client while an authorization is in progress",
       );
+    // RFC 7591 lets the AS change the metadata; a client it registered for another redirect
+    // URI would fail in the browser. Parsed comparison: an AS that echoes a normalized form
+    // (e.g. a trailing "/") normalizes when matching too; exact strings would refuse it.
+    const uris = (client as { redirect_uris?: unknown }).redirect_uris;
+    if (
+      Array.isArray(uris) &&
+      !uris.some((uri) => sameUrl(String(uri), this.config.redirect.url))
+    )
+      throw new Error(
+        `The authorization server registered the client without redirect URI ${this.config.redirect.href}`,
+      );
     this.#savingClient++;
     try {
       // Tokens belong to the client (and issuer) that obtained them. redirect_uris records
@@ -532,13 +543,13 @@ class Session {
       this.flow.verifier = undefined;
     // A pending flow keeps its pinned snapshot: its callback leg can't complete without it.
     if (scope === "discovery" || scope === "all") this.#discovery = undefined;
-    if (scope === "all" || scope === "client" || scope === "tokens") {
+    // Only "all" is a sign-out. The SDK itself invalidates "client"/"tokens" to recover
+    // (invalid_grant, invalid_client), so work they end is superseded: it may retry.
+    if (scope === "client" || scope === "tokens")
+      this.#advance(new UnauthorizedError(SUPERSEDED));
+    if (scope === "all") {
       this.#advance(new Error(INVALIDATED));
       this.#signedOut = this.#generation;
-    }
-    // Only "all" is a sign-out; the SDK itself invalidates "client"/"tokens" to recover and
-    // retry within the same call (invalid_grant, invalid_client).
-    if (scope === "all") {
       this.#signOut.abort(new Error(INVALIDATED));
       this.#signOut = new AbortController();
     }
@@ -584,6 +595,11 @@ function resolveConfig(options: BrowserAuthOptions): Config {
   )
     throw new TypeError("clientName must be a non-empty string");
   if (clientInformation !== undefined) {
+    // Only DCR uses clientName: accepting both would suggest it applies to a static client.
+    if (clientName !== undefined)
+      throw new TypeError(
+        "Pass either clientName (DCR) or clientInformation, not both",
+      );
     if (
       typeof clientInformation?.client_id !== "string" ||
       !clientInformation.client_id

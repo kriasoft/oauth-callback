@@ -19,7 +19,7 @@ class OAuthCallbackError extends Error {
 }
 ```
 
-`message` is `"<error>: <description>"`, or just `error` when there is no description.
+`message` is `Authorization failed: "<error>"`, with the code JSON-escaped. Provider text (`description`, `uri`) never goes into `message`, so logging the error can't inject lines or control characters; show it deliberately if you trust the provider.
 
 ## Usage
 

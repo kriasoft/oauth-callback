@@ -52,10 +52,9 @@ export interface GetAuthCodeOptions {
 export interface AuthorizationCodeResult {
   code: string;
   /**
-   * Exact redirect URI of this flow, never re-serialized. When the authorization request
-   * carried `redirect_uri` (always in builder form), send this value verbatim in the token
-   * request (RFC 6749 §4.1.3). For a URL without `redirect_uri` it is the `redirectUri`
-   * option the library listened on.
+   * Exact redirect URI of this flow, never re-serialized; in builder form, the builder's
+   * `redirectUri`. If the authorization request included `redirect_uri`, send this value
+   * verbatim in the token request (RFC 6749 §4.1.3).
    */
   redirectUri: string;
   /** Full callback query (`iss`, `scope`, extensions, …). */
@@ -74,8 +73,9 @@ export class OAuthCallbackError extends Error {
 
   constructor(params: URLSearchParams) {
     const error = params.get("error") ?? "";
+    // Provider text stays out of the message (logs, terminals); the code is escaped.
+    super(`Authorization failed: ${JSON.stringify(error)}`);
     const description = params.get("error_description") ?? undefined;
-    super(description ? `${error}: ${description}` : error);
     this.error = error;
     this.description = description;
     this.uri = params.get("error_uri") ?? undefined;
@@ -151,6 +151,8 @@ export function checkAuthorizationUrl(input: string | URL): URL {
   if (url.username || url.password) fail("must not contain credentials");
   for (const key of INTERPRETED)
     if (params.getAll(key).length > 1) fail(`duplicate ${key}`);
+  if (params.has("request") && params.has("request_uri"))
+    fail("request and request_uri are mutually exclusive");
   const responseType = params.get("response_type");
   if (responseType !== null && responseType !== "code")
     fail(`response_type must be "code", got "${responseType}"`);
@@ -239,7 +241,6 @@ function prepareUrl(
 /** Builder form: validate the returned URL against the bound listener and generated state. */
 function finishBuiltUrl(
   built: string | URL,
-  bound: URL,
   boundHref: string,
   state: string,
 ): Flow {
@@ -253,8 +254,9 @@ function finishBuiltUrl(
     throw new TypeError(
       "The built authorization URL must use the provided state",
     );
+  // Exact string: the token request must repeat the value the builder was given.
   const sent = params.get("redirect_uri");
-  if (sent !== null && !sameUrl(sent, bound))
+  if (sent !== null && sent !== boundHref)
     throw new TypeError(
       `The built authorization URL must use redirect_uri "${boundHref}"`,
     );
@@ -262,7 +264,7 @@ function finishBuiltUrl(
   if (!pushed && sent === null)
     url = appendParam(url, "redirect_uri", boundHref);
   if (!pushed && sentState === null) url = appendParam(url, "state", state);
-  return { url, redirectUri: sent ?? boundHref };
+  return { url, redirectUri: boundHref };
 }
 
 /**
@@ -327,7 +329,7 @@ export async function getAuthCode(
         Promise.resolve().then(() => builder(ctx)),
         signal,
       );
-      flow = finishBuiltUrl(built, listener.url, boundHref, state);
+      flow = finishBuiltUrl(built, boundHref, state);
     }
     signal.throwIfAborted();
 

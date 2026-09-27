@@ -10,7 +10,7 @@
 
 ## Decision
 
-- Callback pages never contain callback data. Defaults: "Authorization response received. You can close this tab." and "Authorization failed. Return to the application for details." Details go to the application, which can show them in its own UI.
+- Callback pages never contain callback data. Defaults: "Authorization response received. You can close this tab." and "Authorization failed. Return to the application for details." Details go to the application, which can show them in its own UI; `OAuthCallbackError.message` carries only the escaped `error` code, so logging it never echoes provider text.
 - `successHtml`/`errorHtml` are static strings served verbatim; there is no templating.
 - Every response (200, 400, 404, 405) sends `Cache-Control: no-store`, `Referrer-Policy: no-referrer`, `X-Content-Type-Options: nosniff` and `Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`. Default pages are CSS-only.
 

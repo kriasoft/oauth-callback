@@ -45,11 +45,19 @@ const setup = (options: Partial<BrowserAuthOptions> = {}) =>
   browserAuth({
     serverUrl: mock.mcpUrl,
     redirectUri,
-    clientName: "Test CLI",
+    ...(options.clientInformation ? {} : { clientName: "Test CLI" }),
     launch: (url) => void mock.authorize(url),
     timeout: 5000,
     ...options,
   });
+
+/** Sign-out fails stale work plainly; "client"/"tokens" supersede it, so it may retry. */
+const expectEnded = (error: unknown, scope: "all" | "client" | "tokens") => {
+  if (scope === "all") {
+    expect(error).not.toBeInstanceOf(UnauthorizedError);
+    expect((error as Error).message).toMatch(/invalidated/);
+  } else expect(error).toBeInstanceOf(UnauthorizedError);
+};
 
 /** A store holding client "a" and its tokens, as after a completed authorization. */
 const authorized = () => {
@@ -580,7 +588,7 @@ describe("flow ownership", () => {
     const waiting = auth
       .completeAuthorization(transport, { signal: controller.signal })
       .catch(() => {});
-    expect((await refreshing).message).toMatch(/invalidated/);
+    expectEnded(await refreshing, "tokens");
     expect(await auth.tokens()).toBeUndefined();
     controller.abort();
     await waiting;
@@ -732,6 +740,19 @@ describe("credentials", () => {
     expect(JSON.parse(store.value!).client.client_id).toBe("client-2");
   });
 
+  test("a registration the AS made for another redirect URI is refused, not saved", async () => {
+    const store = memory();
+    const auth = setup({ store });
+    await expect(
+      auth.saveClientInformation!({
+        client_id: "a",
+        issuer: mock.base,
+        redirect_uris: ["http://127.0.0.1:1/other"],
+      }),
+    ).rejects.toThrow(/without redirect URI/);
+    expect(store.value).toBeUndefined();
+  });
+
   test("a registration without echoed redirect_uris still re-registers after a redirectUri change", async () => {
     const store = memory();
     await setup({ store }).saveClientInformation!({
@@ -789,7 +810,7 @@ describe("credentials", () => {
       const before = mock.tokenRequests.length;
       while (mock.tokenRequests.length === before) await sleep(10);
       await auth.invalidateCredentials(scope);
-      expect((await connecting).message).toMatch(/invalidated/);
+      expectEnded(await connecting, scope);
       expect(await auth.tokens()).toBeUndefined();
       if (scope === "all") expect(store.value).toBeUndefined();
     });
@@ -811,11 +832,11 @@ describe("credentials", () => {
     await newClient()
       .connect(newTransport())
       .catch(() => {}); // re-stamps the shared owner
-    expect((await completing).message).toMatch(/invalidated/);
+    expectEnded(await completing, "tokens");
     expect(await auth.tokens()).toBeUndefined();
   });
 
-  test("sign-out aborts a live transport's refresh; re-authorization on it isn't overwritten", async () => {
+  test("invalidation aborts a live transport's refresh; re-authorization on it isn't overwritten", async () => {
     const auth = setup();
     const client = newClient();
     await auth.connect(client);
@@ -827,8 +848,7 @@ describe("credentials", () => {
     while (mock.tokenRequests.length === before) await sleep(10);
     await auth.invalidateCredentials("tokens");
     // Settles while the refresh response is still held back: the request was aborted.
-    const error = await refreshing;
-    expect(error).not.toBeInstanceOf(UnauthorizedError); // no browser for a sign-out
+    expectEnded(await refreshing, "tokens");
     // Fresh authorization on the same transport, then let the stale response go.
     await expect(client.listTools()).rejects.toBeInstanceOf(UnauthorizedError);
     await auth.connect(client);
@@ -965,7 +985,7 @@ describe("credentials", () => {
       const connecting = auth.connect(newClient()).catch((e) => e);
       while (mock.registrations.length === 0) await sleep(10);
       await auth.invalidateCredentials(scope);
-      expect((await connecting).message).toMatch(/invalidated/);
+      expectEnded(await connecting, scope);
       expect(await auth.clientInformation()).toBeUndefined();
       expect(store.value).toBeUndefined();
     });
@@ -1165,14 +1185,18 @@ describe("options", () => {
       { ...valid, redirectUri: "http://127.0.0.1:0/cb" },
       { ...valid, redirectUri: "https://127.0.0.1:1/cb" },
       { ...valid, clientName: undefined },
-      { ...valid, clientInformation: { client_id: "x" } },
-      { ...valid, clientInformation: { client_id: "", issuer: "https://as" } },
-      { ...valid, successHtml: 1 },
       {
         ...valid,
-        clientName: 1,
-        clientInformation: { client_id: "x", issuer: "https://as" },
+        clientName: undefined,
+        clientInformation: { client_id: "x" },
       },
+      {
+        ...valid,
+        clientName: undefined,
+        clientInformation: { client_id: "", issuer: "https://as" },
+      },
+      { ...valid, successHtml: 1 },
+      { ...valid, clientName: 1 },
       { ...valid, errorHtml: {} },
       { ...valid, timeout: 0 },
       { ...valid, launch: true },
@@ -1189,6 +1213,12 @@ describe("options", () => {
         clientInformation: { client_id: "x" } as never,
       }),
     ).toThrow(/authorization_servers/);
+    expect(() =>
+      browserAuth({
+        ...valid,
+        clientInformation: { client_id: "x", issuer: "https://as" },
+      }),
+    ).toThrow(/not both/);
   });
 });
 

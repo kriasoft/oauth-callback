@@ -87,7 +87,7 @@ await auth.connect(client);
 | connect-retry boilerplate            | `auth.connect(client)`; custom transports: `auth.completeAuthorization(transport)` |
 | `port`, `hostname`, `callbackPath`   | `redirectUri` (required, fixed port)                                               |
 | —                                    | `serverUrl` (required; the provider and its store serve one server)                |
-| DCR client name fixed                | `clientName` (required unless `clientInformation`)                                 |
+| DCR client name fixed                | `clientName` (for DCR; or `clientInformation`)                                     |
 | `clientId`, `clientSecret`           | `clientInformation: { client_id, client_secret?, issuer }`                         |
 | `scope`                              | `clientMetadata: { scope }`; the server's challenge and metadata take priority     |
 | `authTimeout`                        | `timeout` (one flow; `connect()` aborts its OAuth requests at the deadline)        |

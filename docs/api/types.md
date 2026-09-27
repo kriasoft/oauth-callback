@@ -17,7 +17,7 @@ import type {
 
 ### AuthorizationUrlBuilder
 
-Builds the authorization URL once the loopback listener is bound. `redirect_uri` and `state` are appended when absent; if present they must match.
+Builds the authorization URL once the loopback listener is bound. `redirect_uri` and `state` are appended when absent; if present they must equal the provided values exactly.
 
 ```ts
 type AuthorizationUrlBuilder = (ctx: {
@@ -101,7 +101,7 @@ interface BrowserAuthOptions {
   redirectUri: string | URL;
   /** Client name for Dynamic Client Registration; required unless `clientInformation` is set. */
   clientName?: string;
-  /** Pre-registered client; `issuer` is the MCP server's `authorization_servers` entry. */
+  /** Pre-registered client, instead of `clientName`; `issuer` is the MCP server's `authorization_servers` entry. */
   clientInformation?: StoredOAuthClientInformation & { issuer: string };
   /** Extra client metadata (e.g. `scope`, `grant_types`). */
   clientMetadata?: Partial<

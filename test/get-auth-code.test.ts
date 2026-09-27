@@ -101,6 +101,21 @@ describe("builder form", () => {
     expect(result.redirectUri).toBe(redirectUri);
   });
 
+  test("an outer redirect_uri must be the builder's exact string", async () => {
+    const port = await freePort();
+    let launched = false;
+    const error = await getAuthCode(
+      () =>
+        `${AUTHORIZE}?request_uri=urn:par&redirect_uri=http://localhost:${port}/`,
+      {
+        redirectUri: `http://LOCALHOST:${port}`,
+        launch: () => void (launched = true),
+      },
+    ).catch((e) => e);
+    expect(error).toBeInstanceOf(TypeError);
+    expect(launched).toBe(false);
+  });
+
   test("rejects a built URL with a different state or redirect_uri", async () => {
     let launched = false;
     const launch = () => void (launched = true);
@@ -265,6 +280,7 @@ describe("authorization URL validation", () => {
     `${AUTHORIZE}?response_mode=query&response_mode=query`,
     `${AUTHORIZE}?request_uri=a&request_uri=b`,
     `${AUTHORIZE}?request=a&request=b`,
+    `${AUTHORIZE}?request=a&request_uri=b`,
   ];
 
   for (const url of invalid)
@@ -437,7 +453,7 @@ describe("callbacks", () => {
     expect(error.error).toBe("access_denied");
     expect(error.description).toBe("User said no");
     expect(error.uri).toBe("https://example.com/e");
-    expect(error.message).toBe("access_denied: User said no");
+    expect(error.message).toBe('Authorization failed: "access_denied"');
     expect(error.params.get("error")).toBe("access_denied");
   });
 });
