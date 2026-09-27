@@ -1,9 +1,12 @@
 # OAuth Callback
 
-[![npm version](https://badge.fury.io/js/oauth-callback.svg)](https://badge.fury.io/js/oauth-callback)
-[![npm downloads](https://img.shields.io/npm/dm/oauth-callback.svg)](https://npmjs.com/package/oauth-callback)
-[![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/kriasoft/oauth-callback/blob/main/LICENSE)
-[![TypeScript](https://img.shields.io/badge/TypeScript-Ready-blue.svg)](https://www.typescriptlang.org/)
+<a href="https://www.npmjs.com/package/oauth-callback"><img src="https://img.shields.io/npm/v/oauth-callback?label=npm" height="20"></a>
+<a href="https://www.npmjs.com/package/oauth-callback"><img src="https://img.shields.io/npm/dm/oauth-callback" height="20"></a>
+<a href="https://kriasoft.com/oauth-callback/"><img src="https://img.shields.io/badge/Docs-007ec6" height="20"></a>
+<a href="https://github.com/sponsors/koistya"><img src="https://img.shields.io/badge/-GitHub-%23555.svg?logo=github-sponsors" height="20"></a>
+<a href="https://discord.gg/bSsv7XM"><img src="https://img.shields.io/discord/643523529131950086?label=Chat" height="20"></a>
+<a href="https://github.com/kriasoft/oauth-callback/stargazers"><img src="https://img.shields.io/github/stars/kriasoft/oauth-callback.svg?style=social&label=Star&maxAge=3600" height="20"></a>
+<a href="https://x.com/koistya"><img src="https://img.shields.io/badge/Follow-%40koistya-black?logo=x&style=social" height="20"></a>
 
 Turn a browser authorization into a validated OAuth 2.0 authorization code on a loopback redirect URI, in Node.js, Deno and Bun. For CLI tools and desktop apps, with a one-line browser authorization provider for the MCP SDK.
 
