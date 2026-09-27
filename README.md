@@ -60,7 +60,7 @@ await getAuthCode(({ redirectUri, state, signal }) =>
 
 // Prebuilt URL: listens on its redirect_uri, appends state if missing
 await getAuthCode(
-  "https://auth.example.com/authorize?client_id=app&redirect_uri=http%3A%2F%2F127.0.0.1%3A8765%2Fcallback",
+  "https://auth.example.com/authorize?client_id=app&response_type=code&redirect_uri=http%3A%2F%2F127.0.0.1%3A8765%2Fcallback",
 );
 
 // Prebuilt URL without redirect_uri (the provider uses its registered one)

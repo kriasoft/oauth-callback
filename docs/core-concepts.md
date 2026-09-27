@@ -19,7 +19,7 @@ await getAuthCode(({ redirectUri, state, signal }) =>
 
 // Prebuilt URL: listens on its redirect_uri, appends state if missing
 await getAuthCode(
-  "https://auth.example.com/authorize?client_id=app&redirect_uri=http%3A%2F%2F127.0.0.1%3A8765%2Fcallback",
+  "https://auth.example.com/authorize?client_id=app&response_type=code&redirect_uri=http%3A%2F%2F127.0.0.1%3A8765%2Fcallback",
 );
 
 // Prebuilt URL without redirect_uri (the provider uses its registered one)
@@ -67,7 +67,7 @@ The listener accepts a callback only when it is unambiguously this flow's:
 - exactly one `state`, equal to the flow's
 - either `code` or `error` (not both, not empty), with no duplicated `code`, `error`, `error_description`, `error_uri` or `iss`
 
-Anything else gets a 400 and the flow keeps waiting, so a stray or stale request can't end it. The first valid callback wins; later ones get a 400.
+A wrong path gets a 404, a wrong method a 405, and an invalid callback a 400; the flow keeps waiting, so a stray or stale request can't end it. The first valid callback wins; later ones get a 400.
 
 ## Authorization URL validation
 
@@ -154,9 +154,9 @@ sequenceDiagram
 Key rules:
 
 - **Fixed redirect URI.** `redirectUri` is required and can't use port 0: Dynamic Client Registration registers it.
-- **One flow at a time.** A provider runs one interactive authorization at a time, from `state()` until its token exchange settles. Overlapping attempts fail fast instead of merging: `UnauthorizedError` on transports `connect()` created, a plain `Error` on your own transports, where only the originating transport may complete a flow.
+- **One flow at a time.** A provider runs one interactive authorization at a time, from `state()` until its token exchange settles. Concurrent `connect()` calls queue and reuse its result. Other attempts that overlap it (e.g. a second request's step-up) fail fast instead of merging: `UnauthorizedError` on transports `connect()` created, a plain `Error` on your own transports, where only the originating transport may complete a flow.
 - **Same transport.** A flow completes on the transport that received the 401/403, which holds the scope and resource metadata the exchange needs.
-- **`timeout`** bounds one flow. `connect()` aborts its OAuth requests (discovery, registration, token exchange) at the deadline; `completeAuthorization()` can't interrupt your transport's `finishAuth()`, so give that transport a bounded `fetch`.
+- **`timeout`** bounds one interactive authorization, from the browser step through the token exchange. `connect()` aborts a hung exchange at the deadline; `completeAuthorization()` can't interrupt your transport's `finishAuth()`, so give that transport a bounded `fetch`. Discovery and registration before the browser step aren't covered: for an overall deadline, pass `connect(client, { signal: AbortSignal.timeout(ms) })`.
 
 `connect(client)` resolves once the client is connected. For a client it already connected it is a no-op, after completing any pending step-up flow, so it is safe to call again on `UnauthorizedError`. It never closes a transport it didn't create. For your own transports, use `completeAuthorization(transport)`.
 

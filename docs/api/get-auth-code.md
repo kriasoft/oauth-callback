@@ -122,6 +122,7 @@ const { code } = await getAuthCode(build, {
 ```ts
 const url = new URL("https://auth.example.com/authorize");
 url.searchParams.set("client_id", CLIENT_ID);
+url.searchParams.set("response_type", "code");
 url.searchParams.set("redirect_uri", "http://127.0.0.1:8765/callback");
 
 const { code, params } = await getAuthCode(url); // state is appended

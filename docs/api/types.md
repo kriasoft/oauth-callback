@@ -114,7 +114,7 @@ interface BrowserAuthOptions {
   store?: CredentialStore;
   /** Opens the URL; only a rejection fails the flow. */
   launch?: (url: URL) => unknown;
-  /** Milliseconds for one authorization. `connect()` aborts its OAuth requests at the deadline; bound your own transport's fetch. Default 300_000. */
+  /** Milliseconds for one interactive authorization, browser through token exchange; bound your own transport's fetch. Default 300_000. */
   timeout?: number;
   successHtml?: string;
   errorHtml?: string;
@@ -125,6 +125,9 @@ interface BrowserAuthOptions {
 
 ```ts
 interface BrowserAuth extends OAuthClientProvider {
+  invalidateCredentials(
+    scope: "all" | "client" | "tokens" | "verifier" | "discovery",
+  ): Promise<void>; // required here
   connect(
     client: Client,
     options?: ConnectOptions & {
