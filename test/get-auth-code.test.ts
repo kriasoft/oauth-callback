@@ -543,6 +543,7 @@ describe("lifecycle", () => {
   });
 
   test("valid callback, then launcher rejects: success stands", async () => {
+    // Also guards against an unhandled rejection: bun test fails the test on one.
     const result = await getAuthCode(build, {
       launch: async (url) => {
         await respond(url);
