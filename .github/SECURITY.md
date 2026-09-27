@@ -2,7 +2,7 @@
 
 ## Supported Versions
 
-Only the latest `2.x` release receives security fixes. Please upgrade before reporting.
+Only the latest `3.x` release receives security fixes. Please upgrade before reporting.
 
 ## Reporting a Vulnerability
 
@@ -18,8 +18,9 @@ Examples of issues we want to hear about:
 
 - Leaking authorization codes, tokens, or client secrets (logs, error pages, files, network)
 - Bypassing `state` validation or PKCE, or accepting a callback that should be rejected
-- Token files readable or replaceable by other local users
-- HTML or script injection in the callback success or error pages
+- Credential files (`fileStore`) readable or replaceable by other local users
+- HTML or script injection in the callback pages, or provider text echoed where the docs say it isn't
+- An unsafe authorization URL (neither `https:` nor loopback `http:`, or with a fragment or credentials) reaching the launcher
 - The callback server accepting connections it shouldn't, or staying reachable after shutdown
 
-Vulnerabilities in the OAuth provider or in `@modelcontextprotocol/sdk` should be reported to those projects.
+Vulnerabilities in the OAuth provider or in the MCP SDK (`@modelcontextprotocol/client`) should be reported to those projects.

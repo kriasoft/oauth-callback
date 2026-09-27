@@ -14,7 +14,7 @@ Turn a browser authorization into a validated OAuth 2.0 authorization code on a 
 ## Features
 
 - 🚀 **Node.js 22+, Deno 2 and Bun** — one `node:http` listener everywhere
-- 🔌 **Ephemeral loopback ports** (RFC 8252) — no port collisions, no port config
+- 🔌 **Ephemeral loopback ports** (RFC 8252) — the default for `getAuthCode()`: no port collisions, no port config
 - 🛡️ **Secure by default** — `state` on every flow, strict callback and URL validation, neutral pages with security headers
 - 🤖 **MCP SDK integration** — `browserAuth().connect(client)` handles the whole browser flow
 - ⚡ **Zero runtime dependencies** — the browser launcher is bundled and loaded lazily
@@ -101,7 +101,7 @@ await getAuthCode(build, {
 ```
 
 - **`launch`** receives the final URL. Use it for headless/SSH sessions, QR codes, webviews or tests. Its return value is ignored; if it throws or rejects, the flow fails with that error.
-- **`redirectUri`** must be `http:` on `127.0.0.1`, `[::1]` or `localhost`, without `state`, `code`, `error*` or `iss` in its query. The result's `redirectUri` is returned exactly as sent: when the authorization request carried `redirect_uri` (always with a builder), pass it verbatim to your token request.
+- **`redirectUri`** must be `http:` on `127.0.0.1`, `[::1]` or `localhost`, without `state`, `code`, `error*` or `iss` in its query. The result's `redirectUri` is the exact string, never re-serialized (with a builder, the one the builder got): when the authorization request carried `redirect_uri`, pass it verbatim to your token request.
 - **Pages** never show callback data. `successHtml`/`errorHtml` are served as-is.
 
 ### Errors
@@ -115,6 +115,7 @@ try {
   if (error instanceof OAuthCallbackError) {
     error.error; // e.g. "access_denied"
     error.description; // provider text, untrusted
+    error.message; // Authorization failed: "access_denied" (safe to log)
   } else if (error instanceof DOMException && error.name === "TimeoutError") {
     // no callback within `timeout`
   } else if (signal.aborted) {
@@ -123,7 +124,7 @@ try {
 }
 ```
 
-Invalid options and unsafe authorization URLs (`javascript:`, remote `http:`, `response_type` other than `code`, `response_mode` other than `query`, …) throw `TypeError`/`RangeError` before the browser opens (options and prebuilt URLs before anything binds).
+Invalid options and unsafe or unusable authorization URLs (`javascript:`, remote `http:`, `response_type` other than `code`, `response_mode` other than `query`, both `request` and `request_uri`, …) throw `TypeError`/`RangeError` before the browser opens (options and prebuilt URLs before anything binds).
 
 ## MCP SDK
 
@@ -158,7 +159,7 @@ try {
 }
 ```
 
-**Options:** `serverUrl`, `redirectUri` (fixed port; DCR registers it), `clientName` (for DCR) or `clientInformation` (pre-registered client with its `issuer`), `clientMetadata` (e.g. `{ scope }`), `store` (default: memory), `launch`, `timeout`, `successHtml`, `errorHtml`.
+**Options:** `serverUrl`, `redirectUri` (fixed port; DCR registers it; give providers that may authorize at the same time their own port), either `clientName` (for DCR) or `clientInformation` (pre-registered client with its `issuer`), `clientMetadata` (e.g. `{ scope }`), `store` (default: memory), `launch`, `timeout`, `successHtml`, `errorHtml`.
 
 **Custom transports:** pass `auth` as the transport's `authProvider`; on `UnauthorizedError`, call `await auth.completeAuthorization(transport)`, close that transport, and reconnect with a new one. Only the transport that started a flow gets `UnauthorizedError`; another one gets `An MCP authorization is already in progress`. Always call `completeAuthorization()` after that `UnauthorizedError`: the flow stays pending until it does, even if it failed. Run OAuth work on caller-created transports one attempt at a time; `connect()` handles concurrency for you.
 
@@ -176,10 +177,11 @@ Use one store per MCP server. To sign out, close the client, then clear the cred
 
 ## Security
 
-- Every flow has a `state`; only a callback with exactly that `state` and an unambiguous `code` or `error` completes it. Anything else gets a 400 and the flow keeps waiting.
+- Every flow has a `state`; only a callback with exactly that `state` and an unambiguous `code` or `error` completes it. Anything else is refused (400, or 404/405 for a wrong path or method) and the flow keeps waiting.
 - The listener binds loopback only and closes when the flow ends.
 - Callback pages never render callback data and send `Content-Security-Policy`, `Cache-Control: no-store`, `Referrer-Policy: no-referrer` and `X-Content-Type-Options: nosniff`.
-- `error_description` and `error_uri` are provider text: treat them as untrusted. In `/mcp`, the SDK checks `iss` before trusting error callbacks.
+- `error_description` and `error_uri` are provider text: treat them as untrusted. `OAuthCallbackError.message` carries only the escaped `error` code. In `/mcp`, the SDK checks `iss` before trusting error callbacks.
+- `fileStore()` writes atomically with owner-only permissions (0600) on POSIX. For production, prefer the OS keychain.
 
 ## Runtimes
 

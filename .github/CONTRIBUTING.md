@@ -15,13 +15,16 @@ bun run build         # Build the package
 bun run test          # Unit + MCP e2e tests
 bun run test:runtimes # Smoke-test the build on Node, Deno and Bun
 bun run typecheck     # Check TypeScript types
-bun run validate      # Run all checks (format, typecheck, test, publint)
+bun run format        # Format with Prettier
+bun run validate      # Run all checks (format, typecheck, test, build, publint)
+bun run docs:dev      # Documentation site
 ```
 
 ## Testing Locally
 
 ```bash
-bun run example:demo  # Interactive demo with a mock authorization server
+bun run example:demo    # Interactive demo with a mock authorization server
+bun run example:notion  # Real MCP server (Notion account required)
 ```
 
 ## Pull Requests
@@ -29,6 +32,7 @@ bun run example:demo  # Interactive demo with a mock authorization server
 - Keep changes focused and minimal
 - Run `bun run validate` before submitting
 - Use clear commit messages that explain the "why"
+- Record significant design decisions as ADRs in `docs/adr/`
 
 ## Project Structure
 
