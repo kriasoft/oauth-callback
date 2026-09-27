@@ -10,6 +10,11 @@ on:
 permissions:
   contents: read
 
+# A newer push to the same branch or PR supersedes the running checks.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     name: Test (Bun on ${{ matrix.os }})
@@ -32,10 +37,8 @@ jobs:
             ${{ runner.os }}-bun-
       - run: bun install --frozen-lockfile
       - run: bun run test
-      - run: bun run typecheck
-        if: matrix.os == 'ubuntu-latest'
 
-  # The built package on each runtime's minimum supported version, with the documented
+  # The built package on each runtime's exact minimum supported version, with the documented
   # permissions (Deno's env access is for the smoke test's own tmpdir()).
   runtimes:
     name: Smoke (${{ matrix.runtime }})
@@ -53,7 +56,7 @@ jobs:
       - uses: actions/setup-node@v7
         if: matrix.runtime == 'node'
         with:
-          node-version: "22"
+          node-version: "22.0.0"
       - uses: denoland/setup-deno@v2
         if: matrix.runtime == 'deno'
         with:
@@ -87,19 +90,9 @@ jobs:
       - run: bun run format:check
       - run: bun run typecheck
       - run: bun run build
+      # Also fails when a file referenced by package.json exports is missing.
       - run: bun run lint:package
-
-      - name: Check dist output
-        run: |
-          if [ ! -f "dist/index.js" ]; then
-            echo "Error: dist/index.js not found"
-            exit 1
-          fi
-          if [ ! -f "dist/index.d.ts" ]; then
-            echo "Error: dist/index.d.ts not found"
-            exit 1
-          fi
-          echo "✅ Build output verified"
+      - run: bun run docs:build
 
   validate-examples:
     name: Validate Examples
@@ -117,16 +110,6 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-bun-
       - run: bun install --frozen-lockfile
+      # The other examples need accounts; typecheck (tsconfig includes examples/) covers them.
       - run: bun run examples/demo.ts --no-browser
         timeout-minutes: 1
-
-      - name: Check example files
-        run: |
-          for file in examples/*.ts; do
-            echo "Checking $file..."
-            if [[ "$file" == *"demo.ts"* ]]; then
-              echo "✓ $file - skipping (interactive demo)"
-            else
-              bun build "$file" --target=node --outdir=/tmp/build-test > /dev/null && echo "✓ $file builds successfully"
-            fi
-          done
