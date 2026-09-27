@@ -33,7 +33,7 @@ try {
     if (error.error === "access_denied") {
       console.log("Sign-in cancelled.");
     } else {
-      console.error(`Authorization failed: ${error.error}`);
+      console.error(error.message); // escaped code, no provider text
     }
   } else {
     throw error;

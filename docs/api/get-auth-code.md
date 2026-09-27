@@ -26,7 +26,7 @@ type AuthorizationUrlBuilder = (ctx: {
 
 ### `authorization`
 
-- **Builder** (recommended): called after the listener binds. The returned URL gets `redirect_uri` and `state` appended when absent; if present, they must equal the provided values exactly (`redirect_uri` as the same string, which is also the result's `redirectUri`). Required for PAR/JAR.
+- **Builder** (recommended): called after the listener binds. The returned URL gets `redirect_uri` and `state` appended when absent (except with `request`/`request_uri`, whose request object carries them); if present, they must equal the provided values exactly (`redirect_uri` as the same string, which is also the result's `redirectUri`). Required for PAR/JAR.
 - **URL**: the library listens on its `redirect_uri` (or on `options.redirectUri` when absent) and appends `state` when missing. A URL with `request` or `request_uri` is rejected; use the builder.
 
 Either way the final URL must be `https:` (or loopback `http:`), with no fragment or credentials, no duplicated `state`, `redirect_uri`, `response_type`, `response_mode`, `request` or `request_uri`, not both `request` and `request_uri`, `response_type` absent or `code`, and `response_mode` absent or `query`.

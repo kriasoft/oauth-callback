@@ -17,7 +17,7 @@ import type {
 
 ### AuthorizationUrlBuilder
 
-Builds the authorization URL once the loopback listener is bound. `redirect_uri` and `state` are appended when absent; if present they must equal the provided values exactly.
+Builds the authorization URL once the loopback listener is bound. `redirect_uri` and `state` are appended when absent (not on PAR/JAR URLs, whose request object carries them); if present they must equal the provided values exactly.
 
 ```ts
 type AuthorizationUrlBuilder = (ctx: {

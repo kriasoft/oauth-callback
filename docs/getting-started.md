@@ -139,7 +139,7 @@ try {
   const { code } = await getAuthCode(build);
 } catch (error) {
   if (error instanceof OAuthCallbackError) {
-    console.error(`Authorization failed: ${error.error}`); // e.g. "access_denied"
+    console.error(error.message); // Authorization failed: "access_denied"
   } else if (error instanceof DOMException && error.name === "TimeoutError") {
     console.error("No response within 5 minutes");
   } else {
