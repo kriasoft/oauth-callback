@@ -77,9 +77,11 @@ export interface BrowserAuthOptions {
 
 export interface BrowserAuth extends OAuthClientProvider {
   /** Always present; `"all"` clears the store (even unreadable text) and ends a pending flow. */
-  invalidateCredentials: NonNullable<
-    OAuthClientProvider["invalidateCredentials"]
-  >;
+  invalidateCredentials(
+    scope: Parameters<
+      NonNullable<OAuthClientProvider["invalidateCredentials"]>
+    >[0],
+  ): Promise<void>;
   /**
    * Connects `client` to `serverUrl` over Streamable HTTP, completing browser authorization
    * if required. Resolves once `client` is connected. Also completes a step-up authorization
@@ -408,7 +410,8 @@ class Session {
       ? AbortSignal.any([signal, flow.signal])
       : flow.signal;
     try {
-      // Only an invalidation advances the generation while a flow waits: sign-out ends the wait.
+      // Only a credential invalidation ("all"/"client"/"tokens") advances the generation while
+      // a flow waits; it ends this wait, since the flow may be for the credentials it removed.
       const params = await raceSignal(
         flow.result!,
         AbortSignal.any([combined, this.invalidationSignal]),
@@ -527,10 +530,8 @@ class Session {
   ): Promise<void> {
     if ((scope === "verifier" || scope === "all") && this.flow)
       this.flow.verifier = undefined;
-    if (scope === "discovery" || scope === "all") {
-      this.#discovery = undefined;
-      if (this.flow) this.flow.discovery = undefined;
-    }
+    // A pending flow keeps its pinned snapshot: its callback leg can't complete without it.
+    if (scope === "discovery" || scope === "all") this.#discovery = undefined;
     if (scope === "all" || scope === "client" || scope === "tokens") {
       this.#advance(new Error(INVALIDATED));
       this.#signedOut = this.#generation;
@@ -760,8 +761,10 @@ export function browserAuth(options: BrowserAuthOptions): BrowserAuth {
             client.transport === transport ? client.close() : transport.close()
           ).catch(() => {});
           const flow = session.flow;
+          // One more round covers a 403 step-up on the reconnect right after authorizing;
+          // the bound stops a server that rejects every fresh token.
           const resumable =
-            attempt === 0 &&
+            attempt < 2 &&
             error instanceof UnauthorizedError &&
             flow?.result &&
             flow.owner.transport;

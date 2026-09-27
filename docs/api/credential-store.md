@@ -96,7 +96,7 @@ const auth = browserAuth({
 
 ## Several servers
 
-Give each server its own store and provider:
+Give each server its own store, provider and redirect port; the port is bound only while a flow waits, so providers that may authorize at the same time can't share one:
 
 ```ts
 const notion = browserAuth({
@@ -107,7 +107,7 @@ const notion = browserAuth({
 });
 const linear = browserAuth({
   serverUrl: "https://mcp.linear.app/mcp",
-  redirectUri: "http://127.0.0.1:8765/callback",
+  redirectUri: "http://127.0.0.1:8766/callback",
   clientName: "Acme CLI",
   store: fileStore(join(dir, "linear.json")),
 });

@@ -115,13 +115,12 @@ const CALLBACK_PARAMS = [
 ];
 
 /**
- * Accepts a callback only when it is unambiguously this flow's: exact path, the redirect
- * URI's own query parameters, exactly one matching `state`, and either `code` or `error`
- * (key presence counts, so `?code=abc&error=` is invalid). Anything else gets a 400 and
+ * Accepts a callback on the exact path only when it is unambiguously this flow's: the
+ * redirect URI's own query parameters, exactly one matching `state`, and either `code` or
+ * `error` (key presence counts, so `?code=abc&error=` is invalid). Anything else gets a 400 and
  * the flow keeps waiting, so stray or stale requests can't end it (ADR-004).
  */
 function isValidCallback(url: URL, expected: URL, state: string): boolean {
-  if (url.pathname !== expected.pathname) return false;
   const params = url.searchParams;
   for (const [key, value] of expected.searchParams) {
     const values = params.getAll(key);

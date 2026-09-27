@@ -284,12 +284,12 @@ export async function getAuthCode(
   authorization: string | URL | AuthorizationUrlBuilder,
   options: GetAuthCodeOptions = {},
 ): Promise<AuthorizationCodeResult> {
-  const { launch = openBrowser, successHtml, errorHtml } = options;
+  const { launch = openBrowser } = options;
   options.signal?.throwIfAborted();
   const timeout = checkTimeout(options.timeout);
   if (typeof launch !== "function")
     throw new TypeError("launch must be a function");
-  checkPages(options);
+  const pages = checkPages(options);
 
   const builder =
     typeof authorization === "function" ? authorization : undefined;
@@ -309,13 +309,12 @@ export async function getAuthCode(
     ? AbortSignal.any([options.signal, timer.signal])
     : timer.signal;
 
-  const listener = await listenForCallback(redirect.url, state, {
-    successHtml,
-    errorHtml,
-  }).catch((error) => {
-    timer.clear();
-    throw error;
-  });
+  const listener = await listenForCallback(redirect.url, state, pages).catch(
+    (error) => {
+      timer.clear();
+      throw error;
+    },
+  );
   try {
     let flow: Flow | undefined = prebuilt;
     if (builder) {

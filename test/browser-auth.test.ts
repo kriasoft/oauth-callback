@@ -198,6 +198,17 @@ describe("connect()", () => {
     await auth.connect(newClient());
   });
 
+  test("invalidating discovery during a pending flow doesn't break its exchange", async () => {
+    let auth!: ReturnType<typeof setup>;
+    auth = setup({
+      launch: async (url) => {
+        await auth.invalidateCredentials("discovery");
+        void mock.authorize(url);
+      },
+    });
+    await auth.connect(newClient());
+  });
+
   test("a hung launcher doesn't block the flow", async () => {
     const auth = setup({
       launch: (url) => {
@@ -413,6 +424,15 @@ describe("connect()", () => {
       }),
     );
     expect(retried).toEqual([{ tools: [] }, { tools: [] }, { tools: [] }]);
+    expect(mock.authorizeRequests).toHaveLength(2);
+  });
+
+  test("a 403 step-up on the reconnect after authorizing completes in the same call", async () => {
+    mock.knobs.requiredScope = "admin"; // not advertised: the first flow can't request it
+    const auth = setup();
+    const client = newClient();
+    await auth.connect(client);
+    expect(await client.listTools()).toEqual({ tools: [] });
     expect(mock.authorizeRequests).toHaveLength(2);
   });
 

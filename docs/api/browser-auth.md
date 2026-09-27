@@ -21,18 +21,18 @@ Requires `@modelcontextprotocol/client` 2.1+.
 
 ## Options
 
-| Option              | Type                                                | Default        | Description                                                                                                                                                                                 |
-| ------------------- | --------------------------------------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `serverUrl`         | `string \| URL`                                     | required       | The one MCP server this provider and its store serve (`https:`, or `http:` on a loopback host)                                                                                              |
-| `redirectUri`       | `string \| URL`                                     | required       | Fixed loopback redirect URI, e.g. `http://127.0.0.1:8765/callback`. No port 0                                                                                                               |
-| `clientName`        | `string`                                            | —              | Client name for Dynamic Client Registration. Required unless `clientInformation` is set                                                                                                     |
-| `clientInformation` | `StoredOAuthClientInformation & { issuer: string }` | —              | Pre-registered client; disables DCR                                                                                                                                                         |
-| `clientMetadata`    | `Partial<OAuthClientMetadata>`                      | —              | Extra DCR metadata, e.g. `scope` or `grant_types`                                                                                                                                           |
-| `store`             | `CredentialStore`                                   | memory         | Credential persistence                                                                                                                                                                      |
-| `launch`            | `(url: URL) => unknown`                             | system browser | Opens the URL. Fulfillment is ignored; a throw or rejection fails the flow                                                                                                                  |
-| `timeout`           | `number`                                            | `300000`       | Milliseconds for one authorization, integer in [1, 2³¹−1]. `connect()` aborts its OAuth requests at the deadline; `completeAuthorization()` can't interrupt your transport's `finishAuth()` |
-| `successHtml`       | `string`                                            | neutral page   | Static HTML after a successful callback                                                                                                                                                     |
-| `errorHtml`         | `string`                                            | neutral page   | Static HTML after an error callback                                                                                                                                                         |
+| Option              | Type                                                          | Default        | Description                                                                                                                                                                                 |
+| ------------------- | ------------------------------------------------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `serverUrl`         | `string \| URL`                                               | required       | The one MCP server this provider and its store serve (`https:`, or `http:` on a loopback host)                                                                                              |
+| `redirectUri`       | `string \| URL`                                               | required       | Fixed loopback redirect URI, e.g. `http://127.0.0.1:8765/callback`. No port 0; one port per provider that may authorize concurrently                                                        |
+| `clientName`        | `string`                                                      | —              | Client name for Dynamic Client Registration. Required unless `clientInformation` is set                                                                                                     |
+| `clientInformation` | `StoredOAuthClientInformation & { issuer: string }`           | —              | Pre-registered client; disables DCR                                                                                                                                                         |
+| `clientMetadata`    | `Partial<OAuthClientMetadata>` (adapter-owned fields omitted) | —              | Extra DCR metadata, e.g. `scope` or `grant_types`                                                                                                                                           |
+| `store`             | `CredentialStore`                                             | memory         | Credential persistence                                                                                                                                                                      |
+| `launch`            | `(url: URL) => unknown`                                       | system browser | Opens the URL. Fulfillment is ignored; a throw or rejection fails the flow                                                                                                                  |
+| `timeout`           | `number`                                                      | `300000`       | Milliseconds for one authorization, integer in [1, 2³¹−1]. `connect()` aborts its OAuth requests at the deadline; `completeAuthorization()` can't interrupt your transport's `finishAuth()` |
+| `successHtml`       | `string`                                                      | neutral page   | Static HTML after a successful callback                                                                                                                                                     |
+| `errorHtml`         | `string`                                                      | neutral page   | Static HTML after an error callback                                                                                                                                                         |
 
 Notes:
 
@@ -49,7 +49,7 @@ Invalid options (including a non-object `clientMetadata`) throw `TypeError` (or 
 interface BrowserAuth extends OAuthClientProvider {
   invalidateCredentials(
     scope: "all" | "client" | "tokens" | "verifier" | "discovery",
-  ): void | Promise<void>; // required here
+  ): Promise<void>; // required here
 
   connect(
     client: Client,
