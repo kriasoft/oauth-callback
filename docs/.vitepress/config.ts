@@ -12,6 +12,8 @@ export default withMermaid(
     description:
       "Capture OAuth 2.0 authorization codes on a loopback redirect URI in CLI tools and desktop apps. Node.js, Deno and Bun, MCP SDK integration, zero runtime dependencies.",
 
+    // Local notes and the ADR template aren't pages.
+    srcExclude: ["**/*.local.md", "adr/000-template.md"],
     lastUpdated: true,
     cleanUrls: true,
     metaChunk: true,
@@ -56,7 +58,7 @@ export default withMermaid(
       nav: [
         { text: "Guide", link: "/getting-started" },
         { text: "API", link: "/api/get-auth-code" },
-        { text: "Examples", link: "/examples/notion" },
+        { text: "Examples", link: "/examples/" },
         {
           text: "v3.0.0",
           items: [
@@ -100,6 +102,8 @@ export default withMermaid(
         {
           text: "Examples",
           items: [
+            { text: "Overview", link: "/examples/" },
+            { text: "GitHub Sign-in", link: "/examples/github" },
             { text: "Notion MCP", link: "/examples/notion" },
             { text: "Linear MCP", link: "/examples/linear" },
           ],

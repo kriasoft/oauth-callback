@@ -135,7 +135,7 @@ Each authorization is also bounded by `timeout` (5 minutes by default).
 
 **`client is connected over a transport browserAuth didn't create`.** Use `auth.connect(client)` on a fresh client, or `auth.completeAuthorization(transport)` for your own transport. See [browserAuth](/api/browser-auth#custom-transport).
 
-**Stale credentials.** `await auth.invalidateCredentials("all")` clears the store; the next `connect()` authorizes again.
+**Stale credentials.** `await client.close()`, then `await auth.invalidateCredentials("all")` to clear the store; the next `connect()` authorizes again.
 
 ## Related
 

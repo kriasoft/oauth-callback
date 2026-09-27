@@ -3,8 +3,8 @@
 layout: home
 
 hero:
-  name: "OAuth flow for your CLI or desktop app"
-  text: ""
+  name: "OAuth Callback"
+  text: "Browser sign-in for CLI tools and desktop apps"
   tagline: "Capture an authorization code on a loopback redirect URI in Node.js, Deno and Bun, with a one-line browser provider for the MCP SDK"
   image:
     src: https://raw.githubusercontent.com/kriasoft/oauth-callback/main/examples/notion.gif

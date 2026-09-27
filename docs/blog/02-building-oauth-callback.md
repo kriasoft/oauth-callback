@@ -9,6 +9,10 @@ tags: [nodejs, tutorial, oauth, authentication]
 
 # Building a Localhost OAuth Callback Server in Node.js
 
+::: info Written for v2
+This post describes oauth-callback v2. The v3 API is different; see [Getting Started](/getting-started) and [Migrating to v3](/migration-v3).
+:::
+
 When building CLI tools or desktop applications that integrate with OAuth providers, you face a unique challenge: how do you capture the authorization code when there's no public-facing server to receive the callback? The answer lies in a clever technique that's been right under our noses — spinning up a temporary localhost server to catch the OAuth redirect.
 
 This tutorial walks through building a production-ready OAuth callback server that works across Node.js, Deno, and Bun. We'll cover everything from the basic HTTP server setup to handling edge cases that trip up most implementations.

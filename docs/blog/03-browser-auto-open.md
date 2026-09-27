@@ -8,6 +8,10 @@ tags: [oauth, cli, ux, authentication, browser]
 
 # Browser Auto-Open: Seamless OAuth UX for CLI Tools
 
+::: info Written for v2
+This post describes oauth-callback v2. The v3 API is different; see [Getting Started](/getting-started) and [Migrating to v3](/migration-v3).
+:::
+
 Picture this: you're setting up a new CLI tool, and it needs to authenticate with GitHub. Instead of hunting for API keys or copying tokens, the tool simply opens your browser, you click "Authorize," and you're done. That magic moment — when the browser opens automatically — transforms OAuth from a technical hurdle into a delightful experience.
 
 But getting that browser launch right is harder than it looks. Different operating systems, edge cases with headless environments, custom browser preferences, and security considerations all conspire to turn a simple `open()` call into a complex engineering challenge.

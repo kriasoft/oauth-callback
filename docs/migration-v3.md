@@ -1,3 +1,8 @@
+---
+title: Migrating to v3
+description: Upgrade from oauth-callback v2 to v3, with before/after code for getAuthCode() and browserAuth() and a complete option table.
+---
+
 # Migrating to v3
 
 v3 narrows the library to one job — turning a browser authorization into a validated authorization code on a loopback redirect URI — and lets the MCP SDK own OAuth in `oauth-callback/mcp`. Requirements: Node.js 22+, Deno 2, or Bun 1.2+; `@modelcontextprotocol/client` 2.1+ for `/mcp`.
@@ -90,11 +95,11 @@ await auth.connect(client);
 | DCR client name fixed                | `clientName` (for DCR; or `clientInformation`)                                     |
 | `clientId`, `clientSecret`           | `clientInformation: { client_id, client_secret?, issuer }`                         |
 | `scope`                              | `clientMetadata: { scope }`; the server's challenge and metadata take priority     |
-| `authTimeout`                        | `timeout` (one flow; `connect()` aborts its OAuth requests at the deadline)        |
+| `authTimeout`                        | `timeout` (one interactive authorization, browser through token exchange)          |
 | `store: TokenStore`, `storeKey`      | `store: CredentialStore` (`load()`/`save(text)`), one per server                   |
 | `inMemoryStore()`                    | default                                                                            |
 | `fileStore()` → `~/.mcp/tokens.json` | `fileStore(absolutePath)`, no default path                                         |
 | no refresh tokens                    | refresh handled by the SDK                                                         |
 | `onRequest`                          | removed                                                                            |
 
-Stored v2 token files aren't read by v3: users authorize once after upgrading. To opt into `offline_access` refresh tokens, declare `clientMetadata: { grant_types: ["authorization_code", "refresh_token"] }`.
+v3 doesn't migrate v2 token files: point `fileStore()` at a new file (an old one makes `connect()` throw `Stored MCP credentials have an unsupported format`), or clear it with `invalidateCredentials("all")`. Users authorize once after upgrading. To opt into `offline_access` refresh tokens, declare `clientMetadata: { grant_types: ["authorization_code", "refresh_token"] }`.
