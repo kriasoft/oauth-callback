@@ -113,7 +113,6 @@
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",
     "docs:preview": "vitepress preview docs",
-    "docs:deploy": "bunx gh-pages -d docs/.vitepress/dist",
     "test:runtimes": "bun run build && node test/runtime-smoke.mjs && deno run --allow-net --allow-read --allow-write --allow-env=TMPDIR,TMP,TEMP test/runtime-smoke.mjs && bun test/runtime-smoke.mjs"
   }
 }
