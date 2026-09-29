@@ -190,7 +190,7 @@ bun run example:notion   # Notion MCP server with dynamic client registration
 
 **`EADDRINUSE`.** The fixed port in `redirectUri` is taken. Use the default ephemeral port where the provider allows it, or pick another port.
 
-**The flow times out.** Nothing delivered a callback with the right `state` in time. Check that the browser reached the redirect URI and that the provider returns the `state` it received.
+**The flow times out.** Nothing delivered a callback with the right `state` in time. Check that the browser reached the redirect URI and that the provider returns the `state` it received. On SSH or headless machines, the default launcher has no browser to open; provide a `launch` callback that prints the URL (for example, `launch: (url) => console.log(url)`), then open it in a browser that can reach the listener's loopback address, on the same machine or through an SSH port forward for the redirect URI's port. See [Headless or SSH](#options).
 
 **`TypeError: Invalid authorization URL`.** The URL must be `https:` (or loopback `http:`), without fragment or credentials, with `response_type` absent or `code` and `response_mode` absent or `query`.
 
