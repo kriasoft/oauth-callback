@@ -80,7 +80,7 @@ Look elsewhere when:
 - Node.js 22+, Deno 2 or Bun 1.2+
 - A browser on the user's machine
 - An OAuth client whose redirect URIs include your loopback URI, e.g. `http://127.0.0.1/callback` for providers that allow any loopback port ([RFC 8252 §7.3](https://www.rfc-editor.org/rfc/rfc8252.html#section-7.3)), or a fixed `http://127.0.0.1:8765/callback`. MCP servers that support Dynamic Client Registration need no pre-registration.
-- `@modelcontextprotocol/client` 2.1+ for `oauth-callback/mcp`
+- `@modelcontextprotocol/client` 2.2+ for `oauth-callback/mcp`
 
 The package has zero runtime dependencies.
 

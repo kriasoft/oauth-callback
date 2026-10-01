@@ -45,15 +45,36 @@ import {
   type CredentialStore,
 } from "./credential-store.js";
 
-export interface BrowserAuthOptions {
+/**
+ * The client registers dynamically (`clientName`, optionally via CIMD) or is pre-registered
+ * (`clientInformation`), never both. Runtime checks repeat this for untyped callers.
+ */
+export type BrowserAuthOptions = BrowserAuthBaseOptions &
+  (
+    | {
+        /** Client name for Dynamic Client Registration. */
+        clientName: string;
+        /**
+         * Client ID Metadata Document URL (CIMD), used as `client_id` where the
+         * authorization server supports it; DCR with `clientName` otherwise. Your HTTPS
+         * document must list `redirectUri`.
+         */
+        clientMetadataUrl?: string | URL;
+        clientInformation?: never;
+      }
+    | {
+        /** Pre-registered client. `issuer` is the `authorization_servers` entry of the server's protected-resource metadata. */
+        clientInformation: StoredOAuthClientInformation & { issuer: string };
+        clientName?: never;
+        clientMetadataUrl?: never;
+      }
+  );
+
+interface BrowserAuthBaseOptions {
   /** The one MCP server this provider (and its store) serves. */
   serverUrl: string | URL;
   /** Fixed loopback redirect URI, e.g. `http://127.0.0.1:8765/callback` (no port 0: DCR registers it). */
   redirectUri: string | URL;
-  /** Client name for Dynamic Client Registration; required unless `clientInformation` is set. */
-  clientName?: string;
-  /** Pre-registered client, instead of `clientName`. `issuer` is the `authorization_servers` entry of the server's protected-resource metadata. */
-  clientInformation?: StoredOAuthClientInformation & { issuer: string };
   /** Extra client metadata (e.g. `scope`, `grant_types`); redirect and response fields are set by the adapter. */
   clientMetadata?: Partial<
     Omit<
@@ -113,10 +134,12 @@ interface Owner {
   transport?: StreamableHTTPClientTransport;
   /** While set, the transport's OAuth fetches abort with it: the `connect()` call, then the token exchange. */
   signal?: AbortSignal;
-  /** Its `connect()` attempt failed: late SDK hooks must not start a flow or open a browser. */
+  /** Its `connect()` attempt failed or its connection closed: late SDK hooks must not start a flow or open a browser. */
   abandoned?: boolean;
   /** Session generation when its current SDK auth pass began; guards its saves and state() (see Session.#generation). */
   generation?: number;
+  /** Aborted when its transport, once connected, closes: completing its flow ends with it. */
+  connection?: AbortController;
 }
 
 /** One interactive authorization, from `state()` until its token exchange settles. */
@@ -148,6 +171,7 @@ interface Config {
   serverUrl: URL;
   redirect: RedirectUri;
   metadata: OAuthClientMetadata;
+  clientMetadataUrl?: string;
   staticClient?: StoredOAuthClientInformation;
   launch: (url: URL) => unknown;
   timeout: number;
@@ -269,6 +293,9 @@ class Session {
       },
       invalidateCredentials: (scope) => this.#invalidate(scope),
     };
+    // The SDK picks the client: a stored one, else CIMD where the server supports it, else DCR.
+    if (config.clientMetadataUrl)
+      provider.clientMetadataUrl = config.clientMetadataUrl;
     // Omitted for a static client, so the SDK itself refuses DCR and foreign issuers.
     if (!config.staticClient)
       provider.saveClientInformation = (client) =>
@@ -406,9 +433,8 @@ class Session {
       throw new Error("This authorization is already being completed");
     flow.completing = true;
     flow.generation = this.#generation;
-    const combined = signal
-      ? AbortSignal.any([signal, flow.signal])
-      : flow.signal;
+    const signals = [signal, flow.signal, flow.owner.connection?.signal];
+    const combined = AbortSignal.any(signals.filter((s) => s != null));
     try {
       // Only a credential invalidation ("all"/"client"/"tokens") advances the generation while
       // a flow waits; it ends this wait, since the flow may be for the credentials it removed.
@@ -441,6 +467,18 @@ class Session {
     } finally {
       this.end(flow);
     }
+  }
+
+  /**
+   * `owner`'s attempt or connection has ended: its late hooks can't start a flow, and its
+   * pending flow ends. One being completed is ended by aborting `owner.connection`, so the
+   * completion rejects instead of waiting.
+   */
+  release(owner: Owner): void {
+    owner.abandoned = true;
+    owner.connection?.abort(new Error("The MCP connection was closed"));
+    const flow = this.flow;
+    if (flow?.owner === owner && !flow.completing) this.end(flow);
   }
 
   end(flow: Flow): void {
@@ -567,7 +605,12 @@ class Session {
 function resolveConfig(options: BrowserAuthOptions): Config {
   if (!options || typeof options !== "object")
     throw new TypeError("browserAuth() needs options");
-  const { clientName, clientInformation, launch = openBrowser } = options;
+  const {
+    clientName,
+    clientInformation,
+    clientMetadataUrl,
+    launch = openBrowser,
+  } = options;
   // Bearer tokens travel to serverUrl: plaintext only to this machine.
   const serverHref = String(options.serverUrl);
   const serverUrl = URL.canParse(serverHref) ? new URL(serverHref) : undefined;
@@ -595,10 +638,11 @@ function resolveConfig(options: BrowserAuthOptions): Config {
   )
     throw new TypeError("clientName must be a non-empty string");
   if (clientInformation !== undefined) {
-    // Only DCR uses clientName: accepting both would suggest it applies to a static client.
-    if (clientName !== undefined)
+    // Only DCR and CIMD use clientName and clientMetadataUrl: accepting them would
+    // suggest they apply to a static client.
+    if (clientName !== undefined || clientMetadataUrl !== undefined)
       throw new TypeError(
-        "Pass either clientName (DCR) or clientInformation, not both",
+        "Pass either clientName (DCR, optionally clientMetadataUrl) or clientInformation, not both",
       );
     if (
       typeof clientInformation?.client_id !== "string" ||
@@ -617,6 +661,7 @@ function resolveConfig(options: BrowserAuthOptions): Config {
       "clientName is required for dynamic client registration (or pass clientInformation)",
     );
   }
+  const metadataUrl = checkClientMetadataUrl(clientMetadataUrl);
   if (typeof launch !== "function")
     throw new TypeError("launch must be a function");
   const { clientMetadata = {} } = options;
@@ -647,11 +692,44 @@ function resolveConfig(options: BrowserAuthOptions): Config {
     serverUrl,
     redirect,
     metadata,
+    clientMetadataUrl: metadataUrl,
     staticClient: clientInformation,
     launch,
     timeout: checkTimeout(options.timeout),
     pages: checkPages(options),
   };
+}
+
+/** RFC 3986 `pchar`: unreserved, percent-encoded, sub-delims, `:` and `@`. */
+const PCHAR = String.raw`(?:[\w\-.~!$&'()*+,;=:@]|%[\da-f]{2})`;
+
+/** https URI: host (IP literal or reg-name), optional port, path (captured), optional query. */
+const CIMD_URL = new RegExp(
+  String.raw`^https://(?:\[[\da-f:.]+\]|(?:[\w\-.~!$&'()*+,;=]|%[\da-f]{2})+)(?::\d*)?` +
+    String.raw`((?:/${PCHAR}*)+)(?:\?(?:${PCHAR}|[/?])*)?$`,
+  "i",
+);
+
+/** The CIMD URL, verbatim: it is the `client_id`. */
+function checkClientMetadataUrl(
+  input: string | URL | undefined,
+): string | undefined {
+  if (input === undefined) return undefined;
+  const href = typeof input === "string" ? input : String(input?.href);
+  // CIMD compares client IDs as plain strings, so the raw string is checked, never a
+  // normalized `new URL()`: an RFC 3986 https URI without userinfo or fragment, with a
+  // non-root path (the SDK requires one) and no dot segments.
+  const [, path] = CIMD_URL.exec(href) ?? [];
+  if (
+    path === undefined ||
+    path === "/" ||
+    /(^|\/)(\.|%2e){1,2}(\/|$)/i.test(path) ||
+    !URL.canParse(href)
+  )
+    throw new TypeError(
+      "clientMetadataUrl must be an https: URL with a non-root path, without userinfo, fragment or dot segments",
+    );
+  return href;
 }
 
 /**
@@ -770,6 +848,18 @@ export function browserAuth(options: BrowserAuthOptions): BrowserAuth {
           // initialized notification), and cancellable() leaves MCP traffic alone.
           await raceSignal(client.connect(transport, connectOptions), signal);
           owner.signal = undefined; // the connection outlives this call's signal
+          // A flow ends with the connection that started it, e.g. a step-up its caller
+          // abandons by closing the client, even while connect() completes it. Armed only
+          // now: a failed attempt closes its transport and may still resume the flow below.
+          owner.connection = new AbortController();
+          const onclose = transport.onclose;
+          transport.onclose = () => {
+            try {
+              session.release(owner);
+            } finally {
+              onclose?.();
+            }
+          };
           return;
         } catch (error) {
           // client.connect() may have dropped the transport already; close it either way.
@@ -786,8 +876,7 @@ export function browserAuth(options: BrowserAuthOptions): BrowserAuth {
             flow.owner.transport;
           // A flow this attempt started but won't complete must not block the next one.
           if (!resumable) {
-            owner.abandoned = true;
-            if (flow?.owner === owner && !flow.completing) session.end(flow);
+            session.release(owner);
             // The SDK wraps an aborted handshake in SdkError; cancellation surfaces as its reason.
             signal.throwIfAborted();
             throw error;

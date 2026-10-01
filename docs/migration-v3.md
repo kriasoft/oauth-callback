@@ -5,7 +5,7 @@ description: Upgrade from oauth-callback v2 to v3, with before/after code for ge
 
 # Migrating to v3
 
-v3 narrows the library to one job — turning a browser authorization into a validated authorization code on a loopback redirect URI — and lets the MCP SDK own OAuth in `oauth-callback/mcp`. Requirements: Node.js 22+, Deno 2, or Bun 1.2+; `@modelcontextprotocol/client` 2.1+ for `/mcp`.
+v3 narrows the library to one job — turning a browser authorization into a validated authorization code on a loopback redirect URI — and lets the MCP SDK own OAuth in `oauth-callback/mcp`. Requirements: Node.js 22+, Deno 2, or Bun 1.2+; `@modelcontextprotocol/client` 2.2+ for `/mcp`.
 
 ## `getAuthCode()`
 
@@ -88,7 +88,7 @@ await auth.connect(client);
 
 | v2                                   | v3                                                                                 |
 | ------------------------------------ | ---------------------------------------------------------------------------------- |
-| `@modelcontextprotocol/sdk` 1.x      | `@modelcontextprotocol/client` 2.1+                                                |
+| `@modelcontextprotocol/sdk` 1.x      | `@modelcontextprotocol/client` 2.2+                                                |
 | connect-retry boilerplate            | `auth.connect(client)`; custom transports: `auth.completeAuthorization(transport)` |
 | `port`, `hostname`, `callbackPath`   | `redirectUri` (required, fixed port)                                               |
 | —                                    | `serverUrl` (required; the provider and its store serve one server)                |

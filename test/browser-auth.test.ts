@@ -49,7 +49,7 @@ const setup = (options: Partial<BrowserAuthOptions> = {}) =>
     launch: (url) => void mock.authorize(url),
     timeout: 5000,
     ...options,
-  });
+  } as BrowserAuthOptions);
 
 /** Sign-out fails stale work plainly; "client"/"tokens" supersede it, so it may retry. */
 const expectEnded = (error: unknown, scope: "all" | "client" | "tokens") => {
@@ -455,6 +455,65 @@ describe("connect()", () => {
     expect(mock.authorizeRequests.at(-1)!.searchParams.get("scope")).toContain(
       "admin",
     );
+  });
+
+  for (const phase of ["browser", "exchange"] as const)
+    test(`closing the client while connect() completes its step-up rejects it (${phase})`, async () => {
+      let launches = 0;
+      let release!: () => void;
+      // The first flow is approved at once; the step-up waits for the test
+      const approve = Promise.withResolvers<URL>();
+      const auth = setup({
+        launch: (url) =>
+          void (launches++ ? approve.resolve(url) : mock.authorize(url)),
+      });
+      const client = newClient();
+      await auth.connect(client);
+      mock.knobs.requiredScope = "admin";
+      await expect(client.listTools()).rejects.toBeInstanceOf(
+        UnauthorizedError,
+      );
+      const completing = auth.connect(client);
+      if (phase === "exchange") {
+        mock.knobs.exchangeGate = new Promise<void>((r) => (release = r));
+        void mock.authorize(await approve.promise).catch(() => {});
+        while (
+          !mock.tokenRequests.some(
+            (r) =>
+              r.get("code") && r.get("grant_type") === "authorization_code",
+          ) ||
+          mock.tokenRequests.filter((r) => r.get("code")).length < 2
+        )
+          await sleep(5);
+      } else {
+        await approve.promise;
+        await sleep(50); // connect() is now waiting for the callback
+      }
+      await client.close();
+      await expect(completing).rejects.toThrow("The MCP connection was closed");
+      release?.();
+      expect(client.transport).toBeUndefined(); // not reconnected
+      await expect(fetch(redirectUri)).rejects.toThrow();
+    });
+
+  test("closing the client ends the step-up it left pending and frees the port", async () => {
+    let launches = 0;
+    // The user approves the first flow and walks away from the step-up.
+    const auth = setup({
+      launch: (url) => void (launches++ || mock.authorize(url)),
+    });
+    const client = newClient();
+    await auth.connect(client);
+    mock.knobs.requiredScope = "admin";
+    await expect(client.listTools()).rejects.toBeInstanceOf(UnauthorizedError);
+    expect(launches).toBe(2);
+    await fetch(redirectUri); // listening
+    await client.close();
+    await expect(fetch(redirectUri)).rejects.toThrow();
+    // Not a sign-out: the stored tokens stay usable.
+    mock.knobs.requiredScope = undefined;
+    await auth.connect(newClient());
+    expect(launches).toBe(2);
   });
 });
 
@@ -1168,7 +1227,107 @@ describe("static client", () => {
   });
 });
 
+describe("*.localhost", () => {
+  test("authorizes against a plaintext *.localhost server and authorization server", async () => {
+    const local = await startMockServer({ host: "mcp.localhost" });
+    try {
+      // Every request still reaches 127.0.0.1; URLs, issuer and token endpoint keep the name.
+      const fetch = ((input: string | URL | Request, init?: RequestInit) => {
+        const url = new URL(input instanceof Request ? input.url : input);
+        url.hostname = "127.0.0.1";
+        return globalThis.fetch(url, init);
+      }) as typeof globalThis.fetch;
+      const auth = browserAuth({
+        serverUrl: local.mcpUrl,
+        redirectUri,
+        clientName: "Test CLI",
+        launch: (url) => void local.authorize(url),
+        timeout: 5000,
+      });
+      const client = newClient();
+      await auth.connect(client, { transportOptions: { fetch } });
+      expect(await client.listTools()).toEqual({ tools: [] });
+      expect(local.tokenRequests).toHaveLength(1);
+    } finally {
+      await local.close();
+    }
+  });
+});
+
+describe("client ID metadata document", () => {
+  const metadataUrl = "https://app.example.com/oauth/client.json";
+
+  test("is the client_id where the AS supports it, without registering", async () => {
+    mock.knobs.cimdSupported = true;
+    const auth = setup({ clientMetadataUrl: metadataUrl });
+    expect(auth.clientMetadataUrl).toBe(metadataUrl);
+    await auth.connect(newClient());
+    expect(mock.registrations).toHaveLength(0);
+    expect(mock.authorizeRequests[0]!.searchParams.get("client_id")).toBe(
+      metadataUrl,
+    );
+    expect(mock.tokenRequests.at(-1)!.get("client_id")).toBe(metadataUrl);
+    expect(await auth.clientInformation()).toMatchObject({
+      client_id: metadataUrl,
+    });
+  });
+
+  test("falls back to DCR where the AS doesn't", async () => {
+    const auth = setup({ clientMetadataUrl: metadataUrl });
+    await auth.connect(newClient());
+    expect(mock.registrations).toHaveLength(1);
+    expect(await auth.clientInformation()).toMatchObject({
+      client_id: "client-1",
+    });
+  });
+
+  test("never replaces a stored client: the SDK prefers it to CIMD", async () => {
+    const store = memory();
+    await setup({ store }).connect(newClient());
+    mock.knobs.cimdSupported = true;
+    mock.expireAccessTokens();
+    const auth = setup({ store, clientMetadataUrl: metadataUrl });
+    await auth.connect(newClient());
+    expect(await auth.clientInformation()).toMatchObject({
+      client_id: "client-1",
+    });
+    // Switching identity is a sign-out away
+    await auth.invalidateCredentials("all");
+    await auth.connect(newClient());
+    expect(await auth.clientInformation()).toMatchObject({
+      client_id: metadataUrl,
+    });
+    expect(mock.registrations).toHaveLength(1);
+  });
+});
+
 describe("options", () => {
+  test("type: DCR (with optional CIMD) or a pre-registered client, not both", () => {
+    const base = { serverUrl: "https://mcp.example.com/mcp", redirectUri };
+    const client = { client_id: "id", issuer: "https://as.example.com" };
+    // Compile-time only (tsc checks tests); never called
+    const typed = (): BrowserAuthOptions[] => [
+      { ...base, clientName: "x" },
+      {
+        ...base,
+        clientName: "x",
+        clientMetadataUrl: "https://app.example.com/c.json",
+      },
+      { ...base, clientInformation: client },
+      // @ts-expect-error DCR needs clientName
+      { ...base },
+      // @ts-expect-error a pre-registered client takes no clientName
+      { ...base, clientInformation: client, clientName: "x" },
+      // @ts-expect-error nor a clientMetadataUrl
+      {
+        ...base,
+        clientInformation: client,
+        clientMetadataUrl: "https://app.example.com/c.json",
+      },
+    ];
+    expect(typed).toBeFunction();
+  });
+
   test("are validated up front", () => {
     const valid = {
       serverUrl: "https://mcp.example.com/mcp",
@@ -1176,6 +1335,27 @@ describe("options", () => {
       clientName: "x",
     };
     expect(() => browserAuth(valid)).not.toThrow();
+    expect(() =>
+      browserAuth({ ...valid, serverUrl: "http://mcp.localhost:8080/mcp" }),
+    ).not.toThrow();
+    // Kept verbatim: CIMD compares client IDs as strings, so these are distinct, valid IDs
+    for (const clientMetadataUrl of [
+      "https://app.example.com/a..b/.well/c.json?v=2",
+      "https://App.example.com/c.json",
+      "https://app.example.com:443/c.json",
+      "HTTPS://app.example.com/c.json",
+      "https://[::1]:8443/c.json",
+      "https://app.example.com/c%23.json", // an encoded # is part of the path
+    ])
+      expect(
+        browserAuth({ ...valid, clientMetadataUrl }).clientMetadataUrl,
+      ).toBe(clientMetadataUrl);
+    expect(
+      browserAuth({
+        ...valid,
+        clientMetadataUrl: new URL("https://app.example.com/c.json"),
+      }).clientMetadataUrl,
+    ).toBe("https://app.example.com/c.json");
     for (const invalid of [
       { ...valid, serverUrl: "ftp://x" },
       { ...valid, serverUrl: "http://mcp.example.com/mcp" },
@@ -1204,6 +1384,35 @@ describe("options", () => {
       { ...valid, clientMetadata: "read" },
       { ...valid, clientMetadata: ["read"] },
       { ...valid, clientMetadata: null },
+      { ...valid, serverUrl: "http://mcp.localhost.example.com/mcp" },
+      { ...valid, clientMetadataUrl: "http://app.example.com/client.json" },
+      { ...valid, clientMetadataUrl: "https://app.example.com/" },
+      { ...valid, clientMetadataUrl: "https://u:p@app.example.com/c.json" },
+      { ...valid, clientMetadataUrl: "https://app.example.com/c.json#x" },
+      { ...valid, clientMetadataUrl: "not a url" },
+      { ...valid, clientMetadataUrl: "https://app.example.com/a/../c.json" },
+      { ...valid, clientMetadataUrl: "https://app.example.com/./c.json" },
+      { ...valid, clientMetadataUrl: "https://app.example.com/%2E%2e/c.json" },
+      { ...valid, clientMetadataUrl: "https://app.example.com/a/.." },
+      { ...valid, clientMetadataUrl: "https://@app.example.com/c.json" },
+      { ...valid, clientMetadataUrl: "https://:@app.example.com/c.json" },
+      { ...valid, clientMetadataUrl: "https://app.example.com\\c.json" },
+      { ...valid, clientMetadataUrl: "https:app.example.com/c.json" },
+      { ...valid, clientMetadataUrl: "https://app.example.com/a/.\t./c.json" },
+      { ...valid, clientMetadataUrl: "https://app.example.com/c.json " },
+      { ...valid, clientMetadataUrl: "https:///u:p@app.example.com/c.json" },
+      { ...valid, clientMetadataUrl: "https://app.example.com?c" },
+      { ...valid, clientMetadataUrl: "https://app.example.com/c.json#" },
+      { ...valid, clientMetadataUrl: "https://app.example.com/c.json?#" },
+      { ...valid, clientMetadataUrl: "https://app.example.com/c.json?x=\\y" },
+      { ...valid, clientMetadataUrl: "https://app.example.com/c.json?x=a|b" },
+      { ...valid, clientMetadataUrl: "https://app.example.com/c%GG.json" },
+      { ...valid, clientMetadataUrl: "https://app.example.com/c.json?x=%" },
+      { ...valid, clientMetadataUrl: "https://app.example.com/c[1].json" },
+      { ...valid, clientMetadataUrl: 'https://exa"mple.com/c.json' },
+      { ...valid, clientMetadataUrl: "https://exa{mple.com/c.json" },
+      { ...valid, clientMetadataUrl: "https://app.example.com/a\\..\\c.json" },
+      { ...valid, clientMetadataUrl: 1 },
     ])
       expect(() => browserAuth(invalid as never)).toThrow();
     expect(() =>
@@ -1217,7 +1426,15 @@ describe("options", () => {
       browserAuth({
         ...valid,
         clientInformation: { client_id: "x", issuer: "https://as" },
-      }),
+      } as never),
+    ).toThrow(/not both/);
+    expect(() =>
+      browserAuth({
+        ...valid,
+        clientName: undefined,
+        clientMetadataUrl: "https://app.example.com/c.json",
+        clientInformation: { client_id: "x", issuer: "https://as" },
+      } as never),
     ).toThrow(/not both/);
   });
 });

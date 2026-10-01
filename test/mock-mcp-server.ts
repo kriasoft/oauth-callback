@@ -20,6 +20,8 @@ export interface MockOptions {
   serverScopes?: string[];
   /** Advertise RFC 9207 `iss` support. */
   issSupported?: boolean;
+  /** Host in every advertised URL (e.g. `mcp.localhost`); it always listens on 127.0.0.1. */
+  host?: string;
 }
 
 interface Code {
@@ -51,6 +53,8 @@ export async function startMockServer(options: MockOptions = {}) {
     registerDelay: 0,
     /** Next token response is this OAuth error. */
     tokenError: undefined as string | undefined,
+    /** Advertise Client ID Metadata Document support (any client_id is accepted). */
+    cimdSupported: false,
   };
 
   let base = "";
@@ -109,6 +113,7 @@ export async function startMockServer(options: MockOptions = {}) {
         scopes_supported: options.serverScopes,
         authorization_response_iss_parameter_supported:
           options.issSupported ?? true,
+        client_id_metadata_document_supported: knobs.cimdSupported,
       });
     if (path === "/register" && req.method === "POST") {
       const body = JSON.parse(await readBody(req));
@@ -214,7 +219,7 @@ export async function startMockServer(options: MockOptions = {}) {
   });
 
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-  base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
+  base = `http://${options.host ?? "127.0.0.1"}:${(server.address() as { port: number }).port}`;
 
   return {
     base,

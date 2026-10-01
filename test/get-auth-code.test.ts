@@ -270,6 +270,7 @@ describe("authorization URL validation", () => {
     "javascript:alert(1)",
     "file:///etc/passwd",
     "http://auth.example.com/authorize",
+    "http://auth.localhost.example.com/authorize",
     `${AUTHORIZE}#frag`,
     "https://user:pass@auth.example.com/authorize",
     `${AUTHORIZE}?response_type=token`,
@@ -291,20 +292,22 @@ describe("authorization URL validation", () => {
       ).rejects.toThrow(TypeError);
     });
 
-  test("accepts http: on a loopback authorization server", async () => {
-    const result = await getAuthCode(
-      () => "http://127.0.0.1:9/authorize?response_type=code",
-      {
-        launch: (url) => void respond(url),
-      },
-    );
-    expect(result.code).toBe("test-code");
-  });
+  for (const host of ["127.0.0.1:9", "auth.localhost:9"])
+    test(`accepts http: on a loopback authorization server (${host})`, async () => {
+      const result = await getAuthCode(
+        () => `http://${host}/authorize?response_type=code`,
+        {
+          launch: (url) => void respond(url),
+        },
+      );
+      expect(result.code).toBe("test-code");
+    });
 
   test("rejects invalid redirect URIs", async () => {
     for (const redirectUri of [
       "https://127.0.0.1:0/cb",
       "http://example.com:0/cb",
+      "http://app.localhost:0/cb", // *.localhost: nothing to bind
       "http://127.0.0.1:0/cb#x",
       "http://u:p@127.0.0.1:0/cb",
       "http://127.0.0.1:0/cb?a=1&a=2",

@@ -17,7 +17,7 @@ import { browserAuth } from "oauth-callback/mcp";
 function browserAuth(options: BrowserAuthOptions): BrowserAuth;
 ```
 
-Requires `@modelcontextprotocol/client` 2.1+.
+Requires `@modelcontextprotocol/client` 2.2+.
 
 ## Options
 
@@ -26,6 +26,7 @@ Requires `@modelcontextprotocol/client` 2.1+.
 | `serverUrl`         | `string \| URL`                                               | required       | The one MCP server this provider and its store serve (`https:`, or `http:` on a loopback host)                                       |
 | `redirectUri`       | `string \| URL`                                               | required       | Fixed loopback redirect URI, e.g. `http://127.0.0.1:8765/callback`. No port 0; one port per provider that may authorize concurrently |
 | `clientName`        | `string`                                                      | —              | Client name for Dynamic Client Registration. Required unless `clientInformation` is set; not both                                    |
+| `clientMetadataUrl` | `string \| URL`                                               | —              | Client ID Metadata Document URL, used as `client_id` where the authorization server supports CIMD; DCR with `clientName` otherwise   |
 | `clientInformation` | `StoredOAuthClientInformation & { issuer: string }`           | —              | Pre-registered client; disables DCR                                                                                                  |
 | `clientMetadata`    | `Partial<OAuthClientMetadata>` (adapter-owned fields omitted) | —              | Extra DCR metadata, e.g. `scope` or `grant_types`                                                                                    |
 | `store`             | `CredentialStore`                                             | memory         | Credential persistence                                                                                                               |
@@ -38,10 +39,11 @@ Notes:
 
 - **`redirectUri`** is registered with the authorization server, so it must be fixed. It follows the same loopback rules as [`getAuthCode()`](/api/get-auth-code#options).
 - **`clientMetadata`** can't override `client_name`, `redirect_uris`, `response_types` or `application_type`. The SDK derives the other DCR defaults; requested scopes from the server's challenge and metadata take priority over `scope`.
+- **`clientMetadataUrl`** serves your client's metadata document, which must list `redirectUri`. It is the `client_id`, used verbatim (a `URL` as its `href`; CIMD compares client IDs as strings, so `https://example.com/c` and `https://example.com:443/c` are different clients): a valid `https:` URL with a non-root path (e.g. `%XX` escapes, no raw `|`), and no userinfo, fragment or `.`/`..` segments. A query is allowed, though CIMD advises against one. The SDK uses it when the authorization server supports CIMD and no client is stored yet; a stored client (e.g. from DCR) keeps being used until you sign out with `invalidateCredentials("all")`.
 - **`clientInformation.issuer`** is the `authorization_servers` entry of the MCP server's protected-resource metadata. A static client is never re-registered, and the SDK refuses a different issuer.
 - **Refresh tokens.** To opt into `offline_access`, declare `clientMetadata: { grant_types: ["authorization_code", "refresh_token"] }`.
 
-Invalid options (including a non-object `clientMetadata`) throw `TypeError` (or `RangeError` for `timeout`) immediately.
+`BrowserAuthOptions` is a union: TypeScript rejects `clientInformation` together with `clientName` or `clientMetadataUrl`, and DCR without `clientName`. Invalid options (including a non-object `clientMetadata`) throw `TypeError` (or `RangeError` for `timeout`) immediately.
 
 ## Return value
 
@@ -76,6 +78,7 @@ Connects `client` to `serverUrl` over a Streamable HTTP transport it creates, co
 - For a client it already connected, it returns without reconnecting, after completing any authorization pending on that connection (step-up). Calling it again on `UnauthorizedError` is safe.
 - Throws if `client` is connected over a transport it didn't create. It never closes such a transport; use `completeAuthorization()` there.
 - `options.signal` cancels the call, including waiting for the browser; `transportOptions` (e.g. `requestInit`, `fetch`) configure the transport.
+- Closing the client ends an authorization its connection left pending (e.g. a step-up you won't complete) and frees the redirect port; a `connect()` completing it rejects. A `connect()` call that hasn't started completing it yet reconnects instead: abort its `signal` to cancel it. Stored credentials stay.
 - Calls on one provider run one at a time.
 
 ### `completeAuthorization(transport, options?)`
@@ -105,6 +108,19 @@ const auth = browserAuth({
 
 const client = new Client({ name: "acme", version: "1.0.0" });
 await auth.connect(client);
+```
+
+### Client ID Metadata Document
+
+Host a metadata document at an HTTPS URL whose `client_id` is that URL and whose `redirect_uris` include `redirectUri`. Serve it with `200 OK` directly: authorization servers don't follow redirects. Keep `clientName` for authorization servers without CIMD support:
+
+```ts
+const auth = browserAuth({
+  serverUrl: "https://mcp.example.com/mcp",
+  redirectUri: "http://127.0.0.1:8765/callback",
+  clientMetadataUrl: "https://acme.example.com/oauth/client.json",
+  clientName: "Acme CLI",
+});
 ```
 
 ### Pre-registered client
@@ -188,6 +204,7 @@ await auth.invalidateCredentials("all");
 - **One flow at a time.** A provider runs one interactive authorization at a time, from the SDK's `state()` call until the token exchange settles. `connect()` calls queue, so they never compete. Other overlapping attempts fail fast and are never merged: with `UnauthorizedError` on transports `connect()` created (so `connect()` can complete the flow, then retry), with a plain `Error` on transports you created (only the transport that started a flow may complete it).
 - **Timeout.** `timeout` bounds one interactive authorization, from the browser step through the token exchange. On transports created by `connect()`, a hung token endpoint is aborted too; `completeAuthorization()` can't interrupt your transport's `finishAuth()`. Discovery and registration happen before the browser step and aren't covered: pass `connect(client, { signal: AbortSignal.timeout(ms) })` for an overall deadline.
 - **Client identity.** While a flow is active, registration can't replace the client. A stored DCR client registered for a different redirect URI is re-registered.
+- **Abandoned flows.** A flow ends with the connection that started it (see [`connect()`](#connect-client-options)). On your own transports, `completeAuthorization()` ends it, even with an aborted `signal`.
 - **Callbacks.** Same validation, pages and security headers as [`getAuthCode()`](/core-concepts#state-and-callback-validation). Error callbacks go to the SDK, which checks `iss` before trusting them.
 - **Storage.** Use one store per MCP server. See [CredentialStore](/api/credential-store).
 

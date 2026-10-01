@@ -32,7 +32,7 @@ deno add npm:oauth-callback
 
 :::
 
-For MCP, also install the SDK client: `@modelcontextprotocol/client` 2.1+.
+For MCP, also install the SDK client: `@modelcontextprotocol/client` 2.2+.
 
 On Deno, grant `--allow-net` (listener), `--allow-run` and `--allow-env` (default browser launcher), plus `--allow-read`/`--allow-write` if you use `fileStore`.
 

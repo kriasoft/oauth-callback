@@ -39,9 +39,16 @@ export interface CallbackListener {
   close(): Promise<void>;
 }
 
-const LOOPBACK_HOSTS = new Set(["127.0.0.1", "[::1]", "localhost"]);
+/** Hosts a redirect URI may name: the ones RFC 8252 §7.3 lists, which this listener binds. */
+const REDIRECT_HOSTS = new Set(["127.0.0.1", "[::1]", "localhost"]);
 
-export const isLoopbackHost = (url: URL) => LOOPBACK_HOSTS.has(url.hostname);
+/**
+ * Hosts where plaintext `http:` stays on this machine: the redirect hosts plus `*.localhost`
+ * (RFC 6761 §6.3), as the MCP SDK treats them. Not for redirect URIs: the OS resolver
+ * needn't map subdomains to loopback, so there's nothing to bind.
+ */
+export const isLoopbackHost = ({ hostname }: URL) =>
+  REDIRECT_HOSTS.has(hostname) || hostname.endsWith(".localhost");
 
 /** Validates a loopback redirect URI (RFC 8252 §7.3); throws `TypeError` before anything binds. */
 export function parseRedirectUri(
@@ -57,7 +64,8 @@ export function parseRedirectUri(
   };
   if (!url) return fail("not a URL");
   if (url.protocol !== "http:") fail("must use http:");
-  if (!isLoopbackHost(url)) fail("host must be 127.0.0.1, [::1] or localhost");
+  if (!REDIRECT_HOSTS.has(url.hostname))
+    fail("host must be 127.0.0.1, [::1] or localhost");
   if (href.includes("#")) fail("must not contain a fragment");
   if (url.username || url.password) fail("must not contain credentials");
   if (url.port === "0" && !allowEphemeralPort)

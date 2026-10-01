@@ -73,7 +73,7 @@ A wrong path gets a 404, a wrong method a 405, and an invalid callback a 400; th
 
 Every authorization URL is checked before any launcher sees it:
 
-- `https:`, or `http:` on a loopback host
+- `https:`, or `http:` on a loopback host (`127.0.0.1`, `[::1]`, `localhost` or `*.localhost`)
 - no fragment or credentials
 - `state`, `redirect_uri`, `response_type`, `response_mode`, `request` and `request_uri` at most once
 - `response_type` absent or `code`, `response_mode` absent or `query`
