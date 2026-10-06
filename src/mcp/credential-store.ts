@@ -24,8 +24,30 @@ export interface CredentialStore {
   save(value: string | undefined): Promise<void>;
 }
 
-/** Tokens stamped with the `client_id` they were issued to; never handed to another client. */
+/** Tokens stamped with the `client_id` they were issued to; see {@link ownsTokens}. */
 export type BoundTokens = StoredOAuthTokens & { client_id: string };
+
+/**
+ * Whether `client` obtained `tokens`: same `client_id` and issuer. The SDK's per-request
+ * `tokens()` read carries no issuer, so the adapter checks it. Issuers match as in the
+ * SDK's `issuersMatch()` (equal up to one trailing "/"); an unstamped side matches, as
+ * the SDK stamps it on its next write.
+ */
+export function ownsTokens(
+  client: StoredOAuthClientInformation,
+  tokens: BoundTokens,
+): boolean {
+  const { issuer: a } = client;
+  const { issuer: b } = tokens;
+  return (
+    client.client_id === tokens.client_id &&
+    (a === undefined ||
+      b === undefined ||
+      a === b ||
+      a === `${b}/` ||
+      b === `${a}/`)
+  );
+}
 
 /** Stored document. Bound to one MCP server: tokens are audience-bound (RFC 8707). */
 interface CredentialDocument {

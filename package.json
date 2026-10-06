@@ -1,6 +1,6 @@
 {
   "name": "oauth-callback",
-  "version": "3.1.0",
+  "version": "3.1.1",
   "description": "Capture OAuth 2.0 authorization codes on a loopback redirect URI in Node.js, Deno and Bun, with a browser authorization provider for the MCP SDK",
   "keywords": [
     "oauth",

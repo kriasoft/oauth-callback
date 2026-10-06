@@ -60,19 +60,18 @@ const expectEnded = (error: unknown, scope: "all" | "client" | "tokens") => {
 };
 
 /** A store holding client "a" and its tokens, as after a completed authorization. */
-const authorized = () => {
+const authorized = (stamp: { issuer?: string; client_id?: string } = {}) => {
+  const { issuer, client_id } = {
+    issuer: "https://as",
+    client_id: "a",
+    ...stamp,
+  };
   const store = memory();
-  const issuer = "https://as";
   store.value = JSON.stringify({
     version: 1,
     serverUrl: new URL(mock.mcpUrl).href,
-    client: { client_id: "a", issuer, redirect_uris: [redirectUri] },
-    tokens: {
-      access_token: "old",
-      token_type: "Bearer",
-      issuer,
-      client_id: "a",
-    },
+    client: { client_id, issuer, redirect_uris: [redirectUri] },
+    tokens: { access_token: "old", token_type: "Bearer", issuer, client_id },
   });
   return store;
 };
@@ -1175,6 +1174,22 @@ describe("credentials", () => {
     });
     expect(await auth.tokens()).toBeUndefined();
   });
+
+  test("re-saving the client at an equivalent issuer keeps its tokens", async () => {
+    const auth = setup({ store: authorized() });
+    await auth.saveClientInformation!({
+      client_id: "a",
+      issuer: "https://as/",
+    });
+    expect(await auth.tokens()).toMatchObject({ access_token: "old" });
+  });
+
+  test("the SDK stamping an unstamped client keeps its unstamped tokens", async () => {
+    const store = authorized({ issuer: undefined });
+    const auth = setup({ store });
+    await auth.saveClientInformation!({ client_id: "a", issuer: "https://as" });
+    expect(await auth.tokens()).toMatchObject({ access_token: "old" });
+  });
 });
 
 describe("static client", () => {
@@ -1216,6 +1231,43 @@ describe("static client", () => {
       clientInformation: { ...staticClient(mock.base), client_id: "other" },
     });
     expect(await other.tokens()).toBeUndefined();
+  });
+
+  // As the SDK's issuersMatch(): equal up to one trailing "/", in either direction.
+  test.each([
+    ["https://as", "https://as", true],
+    ["https://as", "https://as/", true],
+    ["https://as/", "https://as", true],
+    ["https://as/", "https://as//", true],
+    ["https://as", "https://as//", false],
+    ["https://as", "https://other-as", false],
+    [undefined, "https://other-as", true], // unstamped: the SDK stamps it on its next write
+  ])(
+    "tokens stamped %p, static client at %p: reused = %p",
+    async (from, to, reused) => {
+      const auth = setup({
+        store: authorized({ issuer: from }),
+        clientInformation: { client_id: "a", issuer: to },
+      });
+      expect(await auth.tokens()).toEqual(
+        reused ? expect.objectContaining({ access_token: "old" }) : undefined,
+      );
+    },
+  );
+
+  test("a static client moved to another issuer authorizes afresh, never sending the old tokens", async () => {
+    const store = authorized({
+      issuer: "https://old-as",
+      client_id: "static-client",
+    });
+    const auth = setup({ store, clientInformation: staticClient(mock.base) });
+    await auth.connect(newClient());
+    expect(mock.mcpTokens).not.toContain("old");
+    expect(mock.authorizeRequests).toHaveLength(1);
+    expect(JSON.parse(store.value!).tokens).toMatchObject({
+      client_id: "static-client",
+      issuer: mock.base,
+    });
   });
 
   test("survives invalidateCredentials('all')", async () => {

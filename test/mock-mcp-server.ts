@@ -35,6 +35,8 @@ export async function startMockServer(options: MockOptions = {}) {
   const registrations: Record<string, unknown>[] = [];
   const authorizeRequests: URL[] = [];
   const tokenRequests: URLSearchParams[] = [];
+  /** Bearer token of each MCP request (`undefined` when sent without one). */
+  const mcpTokens: (string | undefined)[] = [];
   const codes = new Map<string, Code>();
   const accessTokens = new Map<string, { scope?: string }>();
   const refreshTokens = new Map<string, { clientId: string; scope?: string }>();
@@ -166,6 +168,7 @@ export async function startMockServer(options: MockOptions = {}) {
     }
     if (path === "/mcp") {
       const token = req.headers.authorization?.replace(/^Bearer /, "");
+      mcpTokens.push(token);
       const rejected = knobs.rejectNext;
       knobs.rejectNext = false;
       const grant = token && !rejected ? accessTokens.get(token) : undefined;
@@ -227,6 +230,7 @@ export async function startMockServer(options: MockOptions = {}) {
     registrations,
     authorizeRequests,
     tokenRequests,
+    mcpTokens,
     knobs,
     /** Rejects every access token issued so far, as if they had expired. */
     expireAccessTokens: () => accessTokens.clear(),

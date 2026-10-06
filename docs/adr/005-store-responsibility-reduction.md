@@ -13,8 +13,8 @@
 ## Decision
 
 - `CredentialStore` is `{ load(): Promise<string | undefined>; save(value: string | undefined): Promise<void> }`. A keychain store is four lines.
-- The adapter owns the format: `{ version: 1, serverUrl, client?, tokens? }` with the SDK's issuer-stamped `StoredOAuthClientInformation`/`StoredOAuthTokens` preserved verbatim. Tokens also carry the `client_id` they were issued to and are only returned to that client, so a changed static client or a re-registration never reuses another client's tokens. Unparseable text, an unknown version, or a document for another `serverUrl` throws; nothing is silently discarded.
-- One credential slot per store (one client, one token set). The SDK's issuer stamps (`discardIfIssuerMismatch`) already reject credentials from a different authorization server; a new registration replaces the slot and drops tokens issued to the old client.
+- The adapter owns the format: `{ version: 1, serverUrl, client?, tokens? }` with the SDK's issuer-stamped `StoredOAuthClientInformation`/`StoredOAuthTokens` preserved verbatim. Tokens also carry the `client_id` they were issued to and are returned only to that client at the same issuer (compared like the SDK's `issuersMatch()`; unstamped tokens match). The SDK's per-request `tokens()` read carries no issuer, so without this a changed static client, a static client's new `issuer`, or a re-registration would reuse another client's tokens. Unparseable text, an unknown version, or a document for another `serverUrl` throws; nothing is silently discarded.
+- One credential slot per store (one client, one token set). During authorization the SDK's issuer stamps (`discardIfIssuerMismatch`) also reject credentials from a different authorization server; a new registration replaces the slot and drops tokens issued to the old client.
 - Flow state (state, PKCE verifier, discovery state, callback) is memory-only.
 - `fileStore(path)` needs an absolute path (no `~` expansion, no cwd-relative credentials); writes are atomic, with 0600 files (and 0700 for directories it creates) on POSIX and queued per instance; cross-process locking is a non-goal. The default store is memory.
 
