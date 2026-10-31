@@ -182,6 +182,16 @@ interface Config {
 const INVALIDATED = "Credentials were invalidated during authorization";
 const SUPERSEDED = "The MCP credentials changed during authorization";
 
+/** Whether the client secret has expired; `0` (RFC 7591) or no expiry means never. */
+function clientSecretExpired(client: StoredOAuthClientInformation | undefined) {
+  const expiresAt = client?.client_secret_expires_at;
+  return (
+    typeof expiresAt === "number" &&
+    expiresAt !== 0 &&
+    expiresAt <= Date.now() / 1000
+  );
+}
+
 /**
  * Shared state behind the provider and the per-transport views `connect()` creates.
  * Rule: one interactive authorization per provider at a time; overlapping attempts fail
@@ -248,9 +258,19 @@ class Session {
         return config.metadata;
       },
       state: () => this.#reserve(owner),
-      clientInformation: () => {
+      clientInformation: async () => {
         owner.generation = this.#generation;
-        return this.#clientInformation();
+        const client = await this.#clientInformation();
+        // An expired client makes the SDK register anew before the browser opens. Checked
+        // here, not in #clientInformation(), so #tokens() keeps serving its access tokens;
+        // an active flow's code can only be exchanged by the client it was issued to.
+        if (
+          !config.staticClient &&
+          !this.#active() &&
+          clientSecretExpired(client)
+        )
+          return undefined;
+        return client;
       },
       tokens: () => this.#tokens(),
       saveTokens: async (tokens) => {

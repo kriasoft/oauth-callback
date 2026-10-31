@@ -120,6 +120,8 @@ const auth = browserAuth({
 
 **Browser doesn't open.** Pass a `launch` that prints the URL, and open it on the same machine.
 
+**`Existing OAuth client information is required when exchanging an authorization code`.** The authorization server rejected the client (`invalid_client`), e.g. its secret expired during consent: retry, and `browserAuth()` replaces the client first. A pre-registered `clientInformation` fails with `invalid_client` instead: renew its secret. See [browserAuth](/api/browser-auth#options).
+
 ## Security
 
 - The credential file is created with mode `0600`; keep it out of version control. For production apps, prefer the OS keychain via a custom [CredentialStore](/api/credential-store#keychain-example).

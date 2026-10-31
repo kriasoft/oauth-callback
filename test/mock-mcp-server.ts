@@ -40,7 +40,15 @@ export async function startMockServer(options: MockOptions = {}) {
   const codes = new Map<string, Code>();
   const accessTokens = new Map<string, { scope?: string }>();
   const refreshTokens = new Map<string, { clientId: string; scope?: string }>();
+  const clientSecrets = new Map<
+    string,
+    { secret: string; expiresAt: number }
+  >();
   const knobs = {
+    /** Issue confidential DCR clients with this secret expiry; undefined issues public clients. */
+    clientSecretExpiresAt: undefined as number | undefined,
+    /** How long the AS still accepts a secret after its advertised expiry. */
+    clientSecretGraceSeconds: 0,
     /** Scope the MCP endpoint requires (403 insufficient_scope otherwise). */
     requiredScope: undefined as string | undefined,
     /** Delay token responses (ms), e.g. to test cancellation. */
@@ -120,12 +128,23 @@ export async function startMockServer(options: MockOptions = {}) {
     if (path === "/register" && req.method === "POST") {
       const body = JSON.parse(await readBody(req));
       registrations.push(body);
+      // Assigned before the delay, so concurrent registrations get distinct IDs.
+      const client_id = `client-${registrations.length}`;
       if (knobs.registerDelay)
         await new Promise((r) => setTimeout(r, knobs.registerDelay));
       if (res.destroyed) return;
+      const expiresAt = knobs.clientSecretExpiresAt;
+      const secret = expiresAt === undefined ? undefined : randomUUID();
+      if (secret !== undefined)
+        clientSecrets.set(client_id, { secret, expiresAt: expiresAt! });
       return json(res, 201, {
         ...body,
-        client_id: `client-${registrations.length}`,
+        client_id,
+        ...(secret !== undefined && {
+          client_secret: secret,
+          client_secret_expires_at: expiresAt,
+          token_endpoint_auth_method: "client_secret_post",
+        }),
       });
     }
     if (path === "/token" && req.method === "POST") {
@@ -139,6 +158,15 @@ export async function startMockServer(options: MockOptions = {}) {
         knobs.tokenError = undefined;
         return json(res, 400, { error });
       }
+      const client = clientSecrets.get(params.get("client_id") ?? "");
+      if (
+        client &&
+        (params.get("client_secret") !== client.secret ||
+          (client.expiresAt !== 0 &&
+            client.expiresAt + knobs.clientSecretGraceSeconds <=
+              Date.now() / 1000))
+      )
+        return json(res, 400, { error: "invalid_client" });
       if (params.get("grant_type") === "authorization_code") {
         await knobs.exchangeGate;
         if (res.destroyed) return;

@@ -137,6 +137,8 @@ Each authorization is also bounded by `timeout` (5 minutes by default).
 
 **Stale credentials.** `await client.close()`, then `await auth.invalidateCredentials("all")` to clear the store; the next `connect()` authorizes again.
 
+**`Existing OAuth client information is required when exchanging an authorization code`.** The authorization server rejected the client (`invalid_client`), e.g. its secret expired during consent: retry, and `browserAuth()` replaces the client first. A pre-registered `clientInformation` fails with `invalid_client` instead: renew its secret. See [browserAuth](/api/browser-auth#options).
+
 ## Related
 
 - [browserAuth](/api/browser-auth)

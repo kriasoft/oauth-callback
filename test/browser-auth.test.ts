@@ -7,7 +7,7 @@ import {
   StreamableHTTPClientTransport,
   UnauthorizedError,
 } from "@modelcontextprotocol/client";
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -1192,6 +1192,256 @@ describe("credentials", () => {
   });
 });
 
+describe("DCR client secret expiry", () => {
+  let now: number;
+  let clock: ReturnType<typeof spyOn>;
+
+  beforeEach(() => {
+    now = Math.floor(Date.now() / 1000) * 1000;
+    clock = spyOn(Date, "now").mockImplementation(() => now);
+    mock.knobs.clientSecretExpiresAt = now / 1000 + 60;
+  });
+
+  afterEach(() => clock.mockRestore());
+
+  for (const elapsed of [60, 61])
+    test(`re-registers before opening the browser when the secret expired after ${elapsed}s`, async () => {
+      const store = memory();
+      const first = newClient();
+      await setup({ store }).connect(first);
+      await first.close(); // Its background SSE stream would re-authorize concurrently.
+      const doc = JSON.parse(store.value!);
+      delete doc.tokens; // No refresh path: the next request needs the browser.
+      store.value = JSON.stringify(doc);
+      now += elapsed * 1000;
+      mock.knobs.clientSecretExpiresAt = now / 1000 + 60;
+
+      const auth = setup({
+        store,
+        launch: (url) => {
+          expect(mock.registrations).toHaveLength(2);
+          expect(url.searchParams.get("client_id")).toBe("client-2");
+          return mock.authorize(url);
+        },
+      });
+      const client = newClient();
+      await auth.connect(client);
+      expect(await client.listTools()).toEqual({ tools: [] });
+      expect(mock.registrations).toHaveLength(2);
+      expect(mock.authorizeRequests).toHaveLength(2);
+      expect(mock.tokenRequests.at(-1)!.get("client_id")).toBe("client-2");
+      expect(JSON.parse(store.value!).tokens.client_id).toBe("client-2");
+    });
+
+  test("keeps using a valid access token after the client secret expires", async () => {
+    const store = memory();
+    await setup({ store }).connect(newClient());
+    const saved = store.value;
+    const token = JSON.parse(saved!).tokens.access_token;
+    now += 60_000;
+
+    const auth = setup({
+      store,
+      launch: () => Promise.reject(new Error("browser opened")),
+    });
+    const client = newClient();
+    await auth.connect(client);
+    expect(await client.listTools()).toEqual({ tools: [] });
+    expect(mock.mcpTokens.at(-1)).toBe(token);
+    expect(mock.registrations).toHaveLength(1);
+    expect(mock.tokenRequests).toHaveLength(1);
+    expect(mock.authorizeRequests).toHaveLength(1);
+    expect(store.value).toBe(saved);
+  });
+
+  test("re-registers instead of refreshing with an expired secret", async () => {
+    const store = memory();
+    const first = newClient();
+    await setup({ store }).connect(first);
+    await first.close(); // Its background SSE stream would re-authorize concurrently.
+    expect(JSON.parse(store.value!).tokens.refresh_token).toBeDefined();
+    mock.expireAccessTokens();
+    now += 60_000;
+    mock.knobs.clientSecretExpiresAt = now / 1000 + 60;
+
+    const client = newClient();
+    await setup({ store }).connect(client);
+    expect(await client.listTools()).toEqual({ tools: [] });
+    expect(mock.registrations).toHaveLength(2);
+    // No refresh doomed to invalid_client.
+    expect(mock.tokenRequests.map((p) => p.get("grant_type"))).toEqual([
+      "authorization_code",
+      "authorization_code",
+    ]);
+    expect(JSON.parse(store.value!).tokens.client_id).toBe("client-2");
+  });
+
+  test("switches an expired DCR client to CIMD where the AS now supports it", async () => {
+    const clientMetadataUrl = "https://app.example.com/oauth/client.json";
+    const store = memory();
+    const first = newClient();
+    await setup({ store, clientMetadataUrl }).connect(first);
+    await first.close(); // Its background SSE stream would re-authorize concurrently.
+    const doc = JSON.parse(store.value!);
+    delete doc.tokens;
+    store.value = JSON.stringify(doc);
+    now += 60_000;
+    mock.knobs.cimdSupported = true;
+
+    const auth = setup({ store, clientMetadataUrl });
+    await auth.connect(newClient());
+    expect(mock.registrations).toHaveLength(1);
+    expect(mock.tokenRequests.at(-1)!.get("client_id")).toBe(clientMetadataUrl);
+    expect(await auth.clientInformation()).toMatchObject({
+      client_id: clientMetadataUrl,
+    });
+  });
+
+  test("re-registers an expired client for step-up even with a refresh token", async () => {
+    const auth = setup();
+    const first = newClient();
+    await auth.connect(first);
+    expect((await auth.tokens())!.refresh_token).toBeDefined();
+    // A live client's background SSE stream would step up concurrently (and register too).
+    await first.close();
+    now += 60_000;
+    mock.knobs.clientSecretExpiresAt = now / 1000 + 60;
+    mock.knobs.requiredScope = "admin";
+
+    const client = newClient();
+    await auth.connect(client);
+    expect(await client.listTools()).toEqual({ tools: [] });
+    expect(mock.registrations).toHaveLength(2);
+    expect(mock.authorizeRequests.at(-1)!.searchParams.get("client_id")).toBe(
+      "client-2",
+    );
+    expect(mock.tokenRequests.map((p) => p.get("grant_type"))).toEqual([
+      "authorization_code",
+      "authorization_code",
+    ]);
+  });
+
+  for (const kind of ["connect", "external"] as const)
+    test(`keeps the pinned client when its secret expires during a pending ${kind} flow`, async () => {
+      // The AS grants pending authorizations a grace period. Expiry must not
+      // discard the client locally while its code still belongs to that client.
+      mock.knobs.clientSecretGraceSeconds = 60;
+      const launched = Promise.withResolvers<URL>();
+      const auth = setup({ launch: (url) => void launched.resolve(url) });
+      const client = newClient();
+      const controller = new AbortController();
+      const transport =
+        kind === "external"
+          ? new StreamableHTTPClientTransport(new URL(mock.mcpUrl), {
+              authProvider: auth,
+            })
+          : undefined;
+      const connecting = transport
+        ? client.connect(transport)
+        : auth.connect(client, { signal: controller.signal });
+      const outcome = connecting.then(
+        () => undefined,
+        (error) => error,
+      );
+      try {
+        const url = await launched.promise;
+        now += 60_000;
+        expect(await auth.clientInformation()).toMatchObject({
+          client_id: "client-1",
+        });
+        await mock.authorize(url);
+        if (transport) {
+          expect(await outcome).toBeInstanceOf(UnauthorizedError);
+          await auth.completeAuthorization(transport);
+          await transport.close();
+          await client.connect(
+            new StreamableHTTPClientTransport(new URL(mock.mcpUrl), {
+              authProvider: auth,
+            }),
+          );
+        } else expect(await outcome).toBeUndefined();
+        expect(await client.listTools()).toEqual({ tools: [] });
+        expect(mock.registrations).toHaveLength(1);
+        expect(mock.tokenRequests.at(-1)!.get("client_id")).toBe("client-1");
+        expect(await auth.clientInformation()).toBeUndefined();
+      } finally {
+        controller.abort();
+        await auth.invalidateCredentials("all");
+        await outcome;
+        await transport?.close();
+      }
+    });
+
+  test("a retry re-registers after the AS rejects a secret that expired during consent", async () => {
+    let launches = 0;
+    const auth = setup({
+      launch: (url) => {
+        if (!launches++) {
+          now += 60_000; // The user approves after the secret expired.
+          mock.knobs.clientSecretExpiresAt = now / 1000 + 60;
+        }
+        return mock.authorize(url);
+      },
+    });
+    // invalid_client: the SDK drops the client but can't exchange the code without it.
+    // The troubleshooting docs quote this SDK message.
+    await expect(auth.connect(newClient())).rejects.toThrow(
+      "Existing OAuth client information is required",
+    );
+    expect(mock.tokenRequests.at(-1)!.get("client_id")).toBe("client-1");
+
+    const client = newClient();
+    await auth.connect(client);
+    expect(await client.listTools()).toEqual({ tools: [] });
+    expect(mock.registrations).toHaveLength(2);
+    expect(mock.authorizeRequests).toHaveLength(2);
+    expect(mock.tokenRequests.at(-1)!.get("client_id")).toBe("client-2");
+  });
+
+  for (const expiry of [undefined, 0, "future"] as const)
+    test(`keeps a stored client with ${expiry ?? "missing"} secret expiry`, async () => {
+      const auth = setup();
+      const client = {
+        client_id: "a",
+        issuer: mock.base,
+        client_secret: "secret",
+        client_secret_expires_at:
+          expiry === "future" ? now / 1000 + 60 : expiry,
+      };
+      await auth.saveClientInformation!(client);
+      expect(await auth.clientInformation()).toMatchObject(client);
+    });
+
+  test("treats a negative secret expiry as expired (only 0 means never)", async () => {
+    const auth = setup();
+    await auth.saveClientInformation!({
+      client_id: "a",
+      issuer: mock.base,
+      client_secret: "secret",
+      client_secret_expires_at: -1,
+    });
+    expect(await auth.clientInformation()).toBeUndefined();
+  });
+
+  test("leaves an expired static client alone", async () => {
+    const clientInformation = {
+      client_id: "static-client",
+      issuer: mock.base,
+      client_secret: "static-secret",
+      client_secret_expires_at: now / 1000 - 1,
+      token_endpoint_auth_method: "client_secret_post" as const,
+    };
+    // The mock AS doesn't check static secrets: this proves no DCR, not that an expired one works.
+    const auth = setup({ clientInformation });
+    expect(await auth.clientInformation()).toEqual(clientInformation);
+    const client = newClient();
+    await auth.connect(client);
+    expect(await client.listTools()).toEqual({ tools: [] });
+    expect(mock.registrations).toHaveLength(0);
+    expect(mock.tokenRequests.at(-1)!.get("client_id")).toBe("static-client");
+  });
+});
+
 describe("static client", () => {
   const staticClient = (issuer: string) => ({
     client_id: "static-client",
@@ -1333,7 +1583,7 @@ describe("client ID metadata document", () => {
     });
   });
 
-  test("never replaces a stored client: the SDK prefers it to CIMD", async () => {
+  test("keeps a stored client: the SDK prefers it to CIMD", async () => {
     const store = memory();
     await setup({ store }).connect(newClient());
     mock.knobs.cimdSupported = true;
