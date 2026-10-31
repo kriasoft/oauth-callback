@@ -2,7 +2,7 @@
 /* SPDX-License-Identifier: MIT */
 
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import pkg from "../package.json";
@@ -43,6 +43,29 @@ test("root entry stays small and never loads MCP code or `open` eagerly", async 
 test("MCP entry keeps the SDK external", async () => {
   const code = await readFile(join(outdir, "mcp/index.js"), "utf8");
   expect(code).toContain('from "@modelcontextprotocol/client"');
+});
+
+test("bundled launcher ships its executable xdg-open fallback", async () => {
+  const chunks = await Array.fromAsync(
+    new Bun.Glob("chunks/*.js").scan({ cwd: outdir, absolute: true }),
+  );
+  const launcher = (
+    await Promise.all(
+      chunks.map(async (path) => ({
+        path,
+        code: await readFile(path, "utf8"),
+      })),
+    )
+  ).find(({ code }) => code.includes("// node_modules/open/index.js"));
+  expect(launcher).toBeDefined();
+  const fallback = join(dirname(launcher!.path), "xdg-open");
+  // Unmodified, so it keeps its own copyright and MIT notice.
+  expect(await readFile(fallback)).toEqual(
+    await readFile("node_modules/open/xdg-open"),
+  );
+  // Windows doesn't expose POSIX modes; the script ships for Linux.
+  if (process.platform !== "win32")
+    expect((await stat(fallback)).mode & 0o777).toBe(0o755);
 });
 
 test("bundled packages ship their license notices", async () => {

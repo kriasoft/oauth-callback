@@ -9,7 +9,8 @@
  */
 
 import { $ } from "bun";
-import { readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, copyFile, readFile, rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 
 export async function bundle(outdir: string) {
   const result = await Bun.build({
@@ -22,6 +23,11 @@ export async function bundle(outdir: string) {
     naming: { chunk: "chunks/[name]-[hash].[ext]" },
   });
   if (!result.success) throw new AggregateError(result.logs, "Build failed");
+  // `open` resolves its Linux fallback relative to its bundled launcher chunk. The script
+  // ships unmodified, so it carries its own copyright and MIT notice.
+  const xdgOpen = join(outdir, "chunks/xdg-open");
+  await copyFile("node_modules/open/xdg-open", xdgOpen);
+  await chmod(xdgOpen, 0o755);
   return result.outputs;
 }
 
