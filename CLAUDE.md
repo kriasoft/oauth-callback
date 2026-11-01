@@ -43,5 +43,5 @@ oauth-callback/
 
 - Design Philosophy: Prioritize ideal design over backward compatibility
 - Runtime: Always use Bun (not Node.js/NPM). Bun auto-loads .env files
-- MCP SDK: `@modelcontextprotocol/client` 2.x (optional peer); OAuth implementation in `node_modules/@modelcontextprotocol/client/dist/index.mjs` (`auth`, `authInternal`), typings in `dist/index.d.mts`
+- MCP SDK: `@modelcontextprotocol/client` 2.x (optional peer); OAuth implementation in hashed chunks under `node_modules/@modelcontextprotocol/client/dist/` (grep `authInternal`, `fetchWithinOrigin`), typings in `dist/index.d.mts`
 - Zero runtime dependencies: `open` is a devDependency bundled into a lazy chunk

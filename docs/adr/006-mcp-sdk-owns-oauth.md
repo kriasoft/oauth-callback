@@ -32,7 +32,7 @@
 ## Impact
 
 - Positive: refresh tokens, step-up, `iss` validation and SDK fixes come for free; one line connects.
-- Negative/Risks: peer dependency on `@modelcontextprotocol/client` ^2.2 (2.2 treats `*.localhost` token endpoints as loopback); `connect()` is Streamable HTTP only (SSE is legacy; use `completeAuthorization()`).
+- Negative/Risks: peer dependency on `@modelcontextprotocol/client` ^2.3 (2.2 treats `*.localhost` token endpoints as loopback; 2.3 stops forwarding credentials on cross-origin redirects, GHSA-6prh-2h8m-c8cw); `connect()` is Streamable HTTP only (SSE is legacy; use `completeAuthorization()`).
 
 ## Links
 
