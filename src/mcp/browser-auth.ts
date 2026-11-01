@@ -717,6 +717,37 @@ function resolveConfig(options: BrowserAuthOptions): Config {
   };
 }
 
+/**
+ * The target of `response` if the SDK follows it (mirrors `fetchWithinOrigin`, client 2.3+),
+ * else undefined. A refused target (cross-origin, a POST turned into GET) must not be
+ * learned: OAuth requests to it would pass as MCP traffic.
+ */
+export function followableRedirect(
+  href: string,
+  init: RequestInit | undefined,
+  response: Response,
+): string | undefined {
+  if (![301, 302, 303, 307, 308].includes(response.status)) return;
+  const location = response.headers.get("location");
+  // Not URL.parse(): it needs Node 22.1.
+  if (!location || !URL.canParse(location, href)) return;
+  const to = new URL(location, href);
+  if (to.username || to.password) return;
+  const from = new URL(href);
+  const keepsMethod =
+    (init?.method ?? "GET").toUpperCase() === "GET" ||
+    response.status === 307 ||
+    response.status === 308;
+  const withinOrigin =
+    to.origin === from.origin ||
+    (from.protocol === "http:" &&
+      to.protocol === "https:" &&
+      from.hostname === to.hostname &&
+      !from.port &&
+      !to.port);
+  return keepsMethod && withinOrigin ? to.href : undefined;
+}
+
 /** RFC 3986 `pchar`: unreserved, percent-encoded, sub-delims, `:` and `@`. */
 const PCHAR = String.raw`(?:[\w\-.~!$&'()*+,;=:@]|%[\da-f]{2})`;
 
@@ -794,25 +825,42 @@ export function browserAuth(options: BrowserAuthOptions): BrowserAuth {
   }
 
   /**
-   * The caller's fetch, with OAuth traffic (discovery, DCR, refresh, exchange) cancellable
-   * through `owner.signal` and credential invalidation, so no response from before an
-   * invalidation can be saved after it. MCP traffic always targets `serverUrl` exactly and is
-   * left alone: a long-lived SSE stream or a concurrent request must not inherit either.
-   * No refresh starts during an interactive exchange: on the exchanging transport its save
-   * would pass for the exchange's, and it could land after the newer tokens.
+   * The transport's fetch (ADR-006). OAuth requests (discovery, DCR, refresh, exchange) abort
+   * with `owner.signal` and credential invalidation, so no response from before an
+   * invalidation can be saved after it. MCP requests, to `serverUrl` or a redirect target the
+   * SDK follows from it, are left alone: a long-lived SSE stream or a concurrent request must
+   * not inherit either signal. No refresh starts during an interactive exchange: on the
+   * exchanging transport its save would pass for the exchange's, and it could land after the
+   * newer tokens.
    */
   function cancellable(
     owner: Owner,
-    base: FetchLike = (url, init) => fetch(url, init),
+    transportOptions: StreamableHTTPClientTransportOptions | undefined,
   ): FetchLike {
+    const base: FetchLike =
+      transportOptions?.fetch ?? ((url, init) => fetch(url, init));
+    const redirect = transportOptions?.requestInit?.redirect;
+    // These options leave redirects to fetch or refuse them: the SDK then follows none.
+    const sdkFollows =
+      transportOptions?.redirectPolicy !== "follow" &&
+      redirect !== "manual" &&
+      redirect !== "error";
+    // Per transport, so redirect targets learned from its responses go away with it.
+    const mcpUrls = new Set([config.serverUrl.href]);
     return async (url, init) => {
-      if (String(url) === config.serverUrl.href) return base(url, init);
       if (
         session.flow?.exchanging &&
         init?.body instanceof URLSearchParams &&
         init.body.get("grant_type") === "refresh_token"
       )
         throw new UnauthorizedError(SUPERSEDED);
+      const href = String(url);
+      if (mcpUrls.has(href)) {
+        const response = await base(url, init);
+        const target = sdkFollows && followableRedirect(href, init, response);
+        if (target) mcpUrls.add(target);
+        return response;
+      }
       const signals = [init?.signal, owner.signal, session.invalidationSignal];
       return base(url, {
         ...init,
@@ -854,7 +902,7 @@ export function browserAuth(options: BrowserAuthOptions): BrowserAuth {
         const owner: Owner = { signal };
         const transport = new StreamableHTTPClientTransport(config.serverUrl, {
           ...transportOptions,
-          fetch: cancellable(owner, transportOptions?.fetch),
+          fetch: cancellable(owner, transportOptions),
           authProvider: session.provider(owner),
         });
         owner.transport = transport;

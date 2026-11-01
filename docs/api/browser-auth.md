@@ -17,7 +17,7 @@ import { browserAuth } from "oauth-callback/mcp";
 function browserAuth(options: BrowserAuthOptions): BrowserAuth;
 ```
 
-Requires `@modelcontextprotocol/client` 2.2+.
+Requires `@modelcontextprotocol/client` 2.3+.
 
 ## Options
 
