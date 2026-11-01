@@ -88,6 +88,21 @@ test("your own transport: complete the flow, then retry on a fresh transport (le
   await expectAuthorized(client);
 });
 
+test("MCP requests through a same-origin redirect outlive credential invalidation", async () => {
+  // The SDK follows the redirect itself, calling the provider's fetch once per hop.
+  fixture.redirectToSlash();
+  const auth = await setup();
+  const client = newClient();
+  await auth.connect(client);
+  const call = client.callTool({ name: "wait" });
+  await fixture.waiting;
+  await auth.invalidateCredentials("tokens");
+  fixture.release();
+  expect(await call).toMatchObject({
+    content: [{ type: "text", text: "done" }],
+  });
+});
+
 /**
  * SDK resource server + a minimal authorization server on its own origin. The AS enforces
  * what this flow depends on: a DCR'd loopback redirect URI, state, S256 PKCE, the RFC 8707
@@ -95,11 +110,19 @@ test("your own transport: complete the flow, then retry on a fresh transport (le
  * RFC 9207 `iss` on the callback.
  */
 async function startFixture() {
+  const waiting = Promise.withResolvers<void>();
+  const released = Promise.withResolvers<void>();
+  let redirect = false;
   const mcp = createMcpHandler(() => {
     const server = new McpServer({ name: "fixture", version: "1.0.0" });
     server.registerTool("whoami", {}, async (ctx) => ({
       content: [{ type: "text", text: ctx.http?.authInfo?.clientId ?? "" }],
     }));
+    server.registerTool("wait", {}, async () => {
+      waiting.resolve();
+      await released.promise;
+      return { content: [{ type: "text", text: "done" }] };
+    });
     return server;
   });
 
@@ -221,7 +244,10 @@ async function startFixture() {
             dangerouslyAllowInsecureIssuerUrl: true,
           }),
         );
-      if (url.pathname === "/mcp") {
+      // Trailing-slash canonicalization; the SDK follows it (same origin, 307 keeps the method).
+      if (url.pathname === "/mcp" && redirect)
+        return Response.redirect(new URL("/mcp/", url).href, 307);
+      if (url.pathname === "/mcp" || url.pathname === "/mcp/") {
         const auth = await requireAuth(request);
         if (auth instanceof Response) return auth;
         return mcp.fetch(request, { authInfo: auth });
@@ -250,6 +276,11 @@ async function startFixture() {
 
   return {
     mcpUrl,
+    /** Makes `mcpUrl` redirect to `/mcp/`. */
+    redirectToSlash: () => (redirect = true),
+    /** Settles once a `wait` tool call is running. */
+    waiting: waiting.promise,
+    release: () => released.resolve(),
     async close() {
       await mcp.close().catch(() => {});
       await Promise.all([rs.stop(true), as.stop(true)]);

@@ -796,8 +796,9 @@ export function browserAuth(options: BrowserAuthOptions): BrowserAuth {
   /**
    * The caller's fetch, with OAuth traffic (discovery, DCR, refresh, exchange) cancellable
    * through `owner.signal` and credential invalidation, so no response from before an
-   * invalidation can be saved after it. MCP traffic always targets `serverUrl` exactly and is
-   * left alone: a long-lived SSE stream or a concurrent request must not inherit either.
+   * invalidation can be saved after it. MCP traffic is left alone: a long-lived SSE stream or
+   * a concurrent request must not inherit either. It targets `serverUrl` or a redirect from
+   * it: the SDK follows same-origin redirects itself, one call to this fetch per hop.
    * No refresh starts during an interactive exchange: on the exchanging transport its save
    * would pass for the exchange's, and it could land after the newer tokens.
    */
@@ -805,8 +806,19 @@ export function browserAuth(options: BrowserAuthOptions): BrowserAuth {
     owner: Owner,
     base: FetchLike = (url, init) => fetch(url, init),
   ): FetchLike {
+    // Per transport, so redirect targets learned from its responses go away with it.
+    const mcpUrls = new Set([config.serverUrl.href]);
     return async (url, init) => {
-      if (String(url) === config.serverUrl.href) return base(url, init);
+      const href = String(url);
+      if (mcpUrls.has(href)) {
+        const response = await base(url, init);
+        const location =
+          response.status >= 300 &&
+          response.status < 400 &&
+          response.headers.get("location");
+        if (location) mcpUrls.add(new URL(location, href).href);
+        return response;
+      }
       if (
         session.flow?.exchanging &&
         init?.body instanceof URLSearchParams &&
