@@ -4,6 +4,8 @@
 import { defineConfig } from "vitepress";
 import llmstxt from "vitepress-plugin-llms";
 import { withMermaid } from "vitepress-plugin-mermaid";
+// Docs deploy from the release tag, so the nav shows the version they document.
+import { version } from "../../package.json";
 
 export default withMermaid(
   defineConfig({
@@ -60,7 +62,7 @@ export default withMermaid(
         { text: "API", link: "/api/get-auth-code" },
         { text: "Examples", link: "/examples/" },
         {
-          text: "v3.0.0",
+          text: `v${version}`,
           items: [
             {
               text: "Release Notes",
